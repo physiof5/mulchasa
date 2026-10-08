@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import BlogFeed from '@/components/BlogFeed'
 
 interface Review {
   id: string
@@ -230,6 +231,8 @@ export default function Home() {
           </svg>
         </button>
       </div>
+
+      <BlogFeed />
 
       <div className="px-5 pb-4">
         <div className="text-base font-bold text-gray-900 mb-2.5">실시간 후기</div>

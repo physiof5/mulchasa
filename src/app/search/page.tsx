@@ -23,12 +23,63 @@ interface Therapist {
   tags?: string[]
   rating?: number | null
   reviewCount?: number
+  purposeMatch?: boolean
+  service_mode: string | null
+  visit_radius_km: number | null
+  availability?: string[]
 }
 
 declare global {
   interface Window {
     kakao: any
   }
+}
+
+// 유사 목적 태그 묶음: 설문에서 닿지 않던 태그도 함께 매칭
+const PURPOSE_GROUPS: Record<string, string[]> = {
+  '필라테스': ['필라테스', '1:1 PT'],
+  '1:1 PT': ['1:1 PT', '필라테스'],
+  '수술 후 재활': ['수술 후 재활', '스포츠 재활'],
+  '스포츠 재활': ['스포츠 재활', '수술 후 재활'],
+}
+
+const DAY_LABELS = ['일', '월', '화', '수', '목', '금', '토']
+const SLOT_LABELS: Record<string, string> = {
+  morning: '오전',
+  afternoon: '오후',
+  evening: '저녁',
+}
+
+// "1-morning" 형태의 목록을 "평일 오전 · 토 오후" 처럼 짧게 요약
+function summarizeAvailability(slots: string[]): string {
+  if (!slots || slots.length === 0) return ''
+  const bySlot: Record<string, number[]> = {}
+  slots.forEach(s => {
+    const [day, slot] = s.split('-')
+    if (!bySlot[slot]) bySlot[slot] = []
+    bySlot[slot].push(Number(day))
+  })
+  const parts: string[] = []
+  ;['morning', 'afternoon', 'evening'].forEach(slot => {
+    const days = bySlot[slot]
+    if (!days || days.length === 0) return
+    const weekdays = days.filter(d => d >= 1 && d <= 5)
+    const weekend = days.filter(d => d === 0 || d === 6)
+    const chunk: string[] = []
+    if (weekdays.length === 5) chunk.push('평일')
+    else if (weekdays.length > 0) chunk.push(weekdays.sort().map(d => DAY_LABELS[d]).join('·'))
+    if (weekend.length > 0) chunk.push(weekend.sort().map(d => DAY_LABELS[d]).join('·'))
+    if (chunk.length > 0) parts.push(`${chunk.join('·')} ${SLOT_LABELS[slot]}`)
+  })
+  return parts.join(' · ')
+}
+
+// 설문(symptom)의 기간 id → 상담 폼(ConsultFormModal)의 기간 value 매핑
+const DURATION_TO_FORM: Record<string, string> = {
+  acute: '1주 이내',
+  weeks: '1개월 이내',
+  chronic: '3개월 이상',
+  // prevent(예방·관리)는 통증 시작 개념이 없어 비워둠
 }
 
 function getDistanceKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
@@ -84,11 +135,14 @@ function WideImage({ url, name }: { url: string | null; name: string }) {
 }
 
 // 와이드 배너형 결과 카드
-function ResultCard({ t, onProfile, onConsult }: {
+function ResultCard({ t, onProfile, onConsult, isVisitMode }: {
   t: Therapist
   onProfile: () => void
   onConsult: () => void
+  isVisitMode?: boolean
 }) {
+  const availText = summarizeAvailability(t.availability || [])
+  const canVisit = t.service_mode === 'visit' || t.service_mode === 'both'
   return (
     <div className="bg-white border border-gray-100 rounded-2xl overflow-hidden">
       {/* 와이드 사진 배너 */}
@@ -98,6 +152,18 @@ function ResultCard({ t, onProfile, onConsult }: {
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" fill="#0A8A7B" /><path d="m8 12 3 3 5-6" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
           면허 인증
         </span>
+        <div className="absolute top-3 right-3 flex flex-col items-end gap-1">
+          {canVisit && (
+            <span className="text-[11px] font-bold px-2.5 py-1 rounded-md text-white" style={{ background: '#B45309' }}>
+              🏠 방문 가능
+            </span>
+          )}
+          {t.purposeMatch && (
+            <span className="text-[11px] font-bold px-2.5 py-1 rounded-md text-white" style={{ background: '#0A8A7B' }}>
+              ✓ 목적 맞춤
+            </span>
+          )}
+        </div>
         {t.distance != null && (
           <span className="absolute bottom-3 right-3 bg-black/50 text-white text-xs font-semibold px-2.5 py-1 rounded-md">
             📍 {formatDistance(t.distance)}
@@ -117,9 +183,23 @@ function ResultCard({ t, onProfile, onConsult }: {
               </>
             )}
           </div>
-          <div className="text-[13px] text-gray-500 mb-2.5">
-            경력 {t.years_experience}년 · {typeLabel(t.practitioner_type)} · {t.hospital_name || t.studio_name}
+          <div className="text-[13px] text-gray-500 mb-2">
+            경력 {t.years_experience}년 · {typeLabel(t.practitioner_type)}
+            {(t.hospital_name || t.studio_name) && ` · ${t.hospital_name || t.studio_name}`}
           </div>
+
+          {availText && (
+            <div className="text-[12px] text-gray-500 mb-2.5 flex items-start gap-1">
+              <span className="shrink-0">🕐</span>
+              <span>{availText}</span>
+            </div>
+          )}
+
+          {isVisitMode && t.visit_radius_km != null && (
+            <div className="text-[12px] mb-2.5" style={{ color: '#B45309' }}>
+              🏠 {t.visit_radius_km}km 이내 방문
+            </div>
+          )}
 
           {/* 태그 */}
           {t.tags && t.tags.length > 0 && (
@@ -332,68 +412,118 @@ function SearchContent() {
 
   const bodyPart = searchParams.get('part')
   const purpose = searchParams.get('purpose')
+  // 설문에서 넘어온 값 → 상담 폼 자동 채우기용
+  const durationParam = searchParams.get('duration')
+  const intensityParam = searchParams.get('intensity')
+  const initialDuration = durationParam ? (DURATION_TO_FORM[durationParam] || '') : ''
+  const initialPainLevel = intensityParam
+    ? Math.max(1, Math.min(10, Number(intensityParam)))
+    : undefined
   const userLat = searchParams.get('lat') ? Number(searchParams.get('lat')) : null
   const userLng = searchParams.get('lng') ? Number(searchParams.get('lng')) : null
+  // 설문에서 고른 제공 방식: 'visit'(집으로 방문) / 'center'(센터 내방) / null(무관)
+  const mode = searchParams.get('mode')
+  const isVisitMode = mode === 'visit'
   // 부위/목적 없이 들어오면 전체 치료사 모드 (지도로 찾기)
   const isAllMode = !bodyPart && !purpose
   const hasLocation = userLat !== null && userLng !== null
+  // 방문 검색은 "내 위치가 치료사의 방문 반경 안에 드는가"를 계산해야 하므로 위치가 필수
+  const needsLocation = isVisitMode && !hasLocation
 
   useEffect(() => {
     async function fetchTherapists() {
       setLoading(true)
-      const tagLabels = [bodyPart, purpose].filter(Boolean) as string[]
+
+      // 태그 라벨 ↔ id 맵 (한 번만 로드)
+      const { data: allTagData } = await supabase
+        .from('tags').select('id, label, category')
+      const labelToId: Record<string, string> = {}
+      const idToLabel: Record<string, string> = {}
+      ;(allTagData || []).forEach(tg => {
+        labelToId[tg.label] = tg.id
+        idToLabel[tg.id] = tg.label
+      })
+
+      const partTagId = bodyPart ? labelToId[bodyPart] : undefined
+      const purposeLabels = purpose ? (PURPOSE_GROUPS[purpose] || [purpose]) : []
+      const purposeTagIds = purposeLabels
+        .map(l => labelToId[l])
+        .filter(Boolean) as string[]
 
       let therapistIds: string[] = []
+      let purposeMatchedIds = new Set<string>()
 
-      if (tagLabels.length === 0) {
+      if (!bodyPart && !purpose) {
         // 전체 모드 (지도로 찾기): 검증된 모든 치료사
         const { data: allVerified } = await supabase
           .from('therapists').select('id').eq('verification_status', 'verified')
-        if (!allVerified || allVerified.length === 0) { setTherapists([]); setLoading(false); return }
-        therapistIds = allVerified.map(t => t.id)
+        therapistIds = (allVerified || []).map(t => t.id)
       } else {
-        // 부위/목적 검색 모드
-        const { data: tagData } = await supabase.from('tags').select('id, label').in('label', tagLabels)
-        if (!tagData || tagData.length === 0) { setTherapists([]); setLoading(false); return }
+        const targetTagIds = [partTagId, ...purposeTagIds].filter(Boolean) as string[]
+        if (targetTagIds.length === 0) { setTherapists([]); setLoading(false); return }
 
-        const tagIds = tagData.map(t => t.id)
-        const { data: ttData } = await supabase.from('therapist_tags').select('therapist_id, tag_id').in('tag_id', tagIds)
+        const { data: ttData } = await supabase
+          .from('therapist_tags').select('therapist_id, tag_id').in('tag_id', targetTagIds)
         if (!ttData || ttData.length === 0) { setTherapists([]); setLoading(false); return }
 
-        if (tagLabels.length === 2) {
-          const counts: Record<string, number> = {}
-          ttData.forEach(r => { counts[r.therapist_id] = (counts[r.therapist_id] || 0) + 1 })
-          therapistIds = Object.keys(counts).filter(id => counts[id] === 2)
+        const hasPart = new Set<string>()
+        const hasPurpose = new Set<string>()
+        ttData.forEach(r => {
+          if (partTagId && r.tag_id === partTagId) hasPart.add(r.therapist_id)
+          if (purposeTagIds.includes(r.tag_id)) hasPurpose.add(r.therapist_id)
+        })
+        purposeMatchedIds = hasPurpose
+
+        if (bodyPart && purpose) {
+          // 부위 우선: 부위 전문가를 모두 노출, 목적까지 맞는 사람을 위로 정렬
+          // 부위 전문가가 한 명도 없으면 목적 풀로 폴백 (빈 화면 방지)
+          const partPool = Array.from(hasPart)
+          therapistIds = partPool.length > 0 ? partPool : Array.from(hasPurpose)
+        } else if (bodyPart) {
+          therapistIds = Array.from(hasPart)
         } else {
-          therapistIds = Array.from(new Set(ttData.map(r => r.therapist_id)))
+          therapistIds = Array.from(hasPurpose)
         }
       }
 
       if (therapistIds.length === 0) { setTherapists([]); setLoading(false); return }
 
-      const { data: tData } = await supabase
+      const { data: tDataRaw } = await supabase
         .from('therapists').select('*').in('id', therapistIds).eq('verification_status', 'verified')
+      if (!tDataRaw) { setTherapists([]); setLoading(false); return }
 
-      if (!tData) { setTherapists([]); setLoading(false); return }
+      // 제공 방식 필터
+      let tData = tDataRaw
+      if (mode === 'visit') {
+        tData = tDataRaw.filter(t => {
+          const sm = t.service_mode || 'center'
+          if (sm !== 'visit' && sm !== 'both') return false
+          // 방문은 치료사의 반경 안에 환자가 들어와야 성립
+          if (!hasLocation || !t.latitude || !t.longitude) return false
+          const d = getDistanceKm(userLat!, userLng!, t.latitude, t.longitude)
+          return d <= (t.visit_radius_km ?? 0)
+        })
+      } else if (mode === 'center') {
+        tData = tDataRaw.filter(t => {
+          const sm = t.service_mode || 'center'
+          return sm === 'center' || sm === 'both'
+        })
+      }
 
-      // 각 치료사의 태그 전체 로드
+      if (tData.length === 0) { setTherapists([]); setLoading(false); return }
+
+      // 각 치료사의 태그 전체 로드 (표시용)
       const { data: allTtData } = await supabase
         .from('therapist_tags')
         .select('therapist_id, tag_id')
         .in('therapist_id', therapistIds)
 
-      const { data: allTagData } = await supabase
-        .from('tags')
-        .select('id, label, category')
-
-      const tagMap: Record<string, string> = {}
-      ;(allTagData || []).forEach(tg => { tagMap[tg.id] = tg.label })
-
       const therapistTagsMap: Record<string, string[]> = {}
       ;(allTtData || []).forEach(tt => {
+        const label = idToLabel[tt.tag_id]
+        if (!label) return
         if (!therapistTagsMap[tt.therapist_id]) therapistTagsMap[tt.therapist_id] = []
-        const label = tagMap[tt.tag_id]
-        if (label) therapistTagsMap[tt.therapist_id].push(label)
+        therapistTagsMap[tt.therapist_id].push(label)
       })
 
       // 각 치료사의 리뷰 평점 로드
@@ -409,6 +539,18 @@ function SearchContent() {
         reviewMap[rv.therapist_id].count += 1
       })
 
+      // 가용 시간표 로드
+      const { data: avData } = await supabase
+        .from('therapist_availability')
+        .select('therapist_id, day_of_week, slot')
+        .in('therapist_id', therapistIds)
+
+      const availabilityMap: Record<string, string[]> = {}
+      ;(avData || []).forEach(a => {
+        if (!availabilityMap[a.therapist_id]) availabilityMap[a.therapist_id] = []
+        availabilityMap[a.therapist_id].push(`${a.day_of_week}-${a.slot}`)
+      })
+
       const enriched = tData.map(t => {
         const rv = reviewMap[t.id]
         return {
@@ -418,24 +560,29 @@ function SearchContent() {
           tags: therapistTagsMap[t.id] || [],
           rating: rv ? rv.sum / rv.count : null,
           reviewCount: rv ? rv.count : 0,
+          purposeMatch: purposeMatchedIds.has(t.id),
+          availability: availabilityMap[t.id] || [],
         }
       })
 
-      if (hasLocation) {
-        enriched.sort((a, b) => {
+      const bothSearch = !!bodyPart && !!purpose
+      enriched.sort((a, b) => {
+        // 부위+목적 동시 검색이면, 목적까지 맞는 사람을 먼저
+        if (bothSearch && a.purposeMatch !== b.purposeMatch) return a.purposeMatch ? -1 : 1
+        if (hasLocation) {
           if (a.distance === null && b.distance === null) return b.years_experience - a.years_experience
           if (a.distance === null) return 1
           if (b.distance === null) return -1
           return a.distance - b.distance
-        })
-      } else {
-        enriched.sort((a, b) => b.years_experience - a.years_experience)
-      }
+        }
+        return b.years_experience - a.years_experience
+      })
+
       setTherapists(enriched)
       setLoading(false)
     }
     fetchTherapists()
-  }, [bodyPart, purpose, userLat, userLng, hasLocation])
+  }, [bodyPart, purpose, mode, userLat, userLng, hasLocation])
 
   useEffect(() => {
     let result = [...therapists]
@@ -446,6 +593,23 @@ function SearchContent() {
 
   const isFilterActive = expFilter > 0 || typeFilter !== 'all'
   const resetFilters = () => { setExpFilter(0); setTypeFilter('all') }
+
+  // 방문 검색인데 위치가 없으면 반경 계산이 불가능
+  if (needsLocation) {
+    return (
+      <main className="max-w-md mx-auto min-h-screen bg-white px-5 py-20 text-center">
+        <div className="text-5xl mb-4">📍</div>
+        <p className="text-base font-bold text-gray-700 mb-2">위치 정보가 필요해요</p>
+        <p className="text-sm text-gray-400 mb-6 leading-relaxed">
+          방문 가능한 전문가를 찾으려면<br />
+          어디로 방문할지 알아야 해요.
+        </p>
+        <button onClick={() => router.push('/')} className="px-6 py-3 bg-[#0A8A7B] text-white rounded-xl font-semibold">
+          위치 설정하러 가기
+        </button>
+      </main>
+    )
+  }
 
   if (loading) {
     return (
@@ -462,9 +626,19 @@ function SearchContent() {
         <button onClick={() => router.back()} className="text-gray-600 text-xl">←</button>
         <div className="flex-1">
           <h1 className="text-lg font-bold text-gray-900">
-            {isAllMode ? `내 주변 전문가 ${filtered.length}명` : `${bodyPart} 전문가 ${filtered.length}명`}
+            {isAllMode
+              ? `내 주변 전문가 ${filtered.length}명`
+              : isVisitMode
+                ? `방문 가능 전문가 ${filtered.length}명`
+                : `${bodyPart} 전문가 ${filtered.length}명`}
           </h1>
-          {purpose && <p className="text-sm text-gray-400">{purpose}</p>}
+          {(purpose || isVisitMode) && (
+            <p className="text-sm text-gray-400">
+              {isVisitMode && '🏠 집으로 방문'}
+              {isVisitMode && purpose && ' · '}
+              {purpose}
+            </p>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <span className="text-xs text-gray-400">{hasLocation ? '📍 거리순' : '⭐ 경력순'}</span>
@@ -569,10 +743,18 @@ function SearchContent() {
             <div className="px-5 py-20 text-center">
               <div className="text-5xl mb-4">🔍</div>
               <p className="text-base font-bold text-gray-700 mb-2">
-                {isFilterActive ? '필터 조건에 맞는 전문가가 없습니다' : '조건에 맞는 전문가가 없습니다'}
+                {isFilterActive
+                  ? '필터 조건에 맞는 전문가가 없습니다'
+                  : isVisitMode
+                    ? '방문 가능한 전문가가 아직 없어요'
+                    : '조건에 맞는 전문가가 없습니다'}
               </p>
-              <p className="text-sm text-gray-400 mb-6">
-                {isFilterActive ? '필터를 조정해보세요' : '부위나 목적을 다시 선택해보세요'}
+              <p className="text-sm text-gray-400 mb-6 leading-relaxed">
+                {isFilterActive
+                  ? '필터를 조정해보세요'
+                  : isVisitMode
+                    ? '이 지역에 방문 가능한 전문가가 아직 등록되지 않았어요. 센터 방문으로 다시 찾아보시겠어요?'
+                    : '부위나 목적을 다시 선택해보세요'}
               </p>
               {isFilterActive ? (
                 <button onClick={resetFilters} className="px-6 py-3 bg-[#0A8A7B] text-white rounded-xl font-semibold">필터 초기화</button>
@@ -588,6 +770,7 @@ function SearchContent() {
                   t={t}
                   onProfile={() => router.push('/therapist/' + t.id)}
                   onConsult={() => setSelectedTherapist(t)}
+                  isVisitMode={isVisitMode}
                 />
               ))}
             </div>
@@ -602,6 +785,8 @@ function SearchContent() {
         kakaoLink={selectedTherapist?.kakao_link || ''}
         bodyPart={bodyPart}
         purpose={purpose}
+        initialDuration={initialDuration}
+        initialPainLevel={initialPainLevel}
       />
     </main>
   )

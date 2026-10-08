@@ -9,6 +9,8 @@ interface Props {
   kakaoLink: string
   bodyPart: string | null
   purpose: string | null
+  initialDuration?: string
+  initialPainLevel?: number
 }
 
 const SYMPTOM_DURATION = [
@@ -31,9 +33,12 @@ export default function ConsultFormModal({
   kakaoLink,
   bodyPart,
   purpose,
+  initialDuration,
+  initialPainLevel,
 }: Props) {
-  const [duration, setDuration] = useState<string>('')
-  const [painLevel, setPainLevel] = useState<number>(5)
+  // 설문에서 넘어온 값을 초기값으로 사용 (없으면 기존 기본값)
+  const [duration, setDuration] = useState<string>(initialDuration ?? '')
+  const [painLevel, setPainLevel] = useState<number>(initialPainLevel ?? 5)
   const [timing, setTiming] = useState<string>('')
   const [note, setNote] = useState<string>('')
   const [copied, setCopied] = useState(false)

@@ -20,26 +20,50 @@ interface Therapist {
 
 export default function AdminPage() {
   const [authenticated, setAuthenticated] = useState(false)
+  const [checking, setChecking] = useState(true)
   const [password, setPassword] = useState('')
+  const [loggingIn, setLoggingIn] = useState(false)
   const [therapists, setTherapists] = useState<Therapist[]>([])
   const [loading, setLoading] = useState(false)
-  const [approvingId, setApprovingId] = useState<string | null>(null)
+  const [actingId, setActingId] = useState<string | null>(null)
   const [tab, setTab] = useState<'pending' | 'verified' | 'rejected'>('pending')
 
-  const handleLogin = () => {
-    if (password === process.env.NEXT_PUBLIC_ADMIN_PASSWORD) {
-      setAuthenticated(true)
-      sessionStorage.setItem('mulchasa_admin', 'true')
-    } else {
-      alert('비밀번호가 올바르지 않습니다.')
+  // 진입 시 기존 쿠키 세션 확인 (sessionStorage 같은 조작 가능한 플래그 사용 안 함)
+  useEffect(() => {
+    fetch('/api/admin-login')
+      .then(r => r.json())
+      .then(d => setAuthenticated(!!d.authenticated))
+      .catch(() => {})
+      .finally(() => setChecking(false))
+  }, [])
+
+  const handleLogin = async () => {
+    if (!password) return
+    setLoggingIn(true)
+    try {
+      const res = await fetch('/api/admin-login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password }),
+      })
+      if (res.ok) {
+        setAuthenticated(true)
+        setPassword('')
+      } else {
+        alert('비밀번호가 올바르지 않습니다.')
+      }
+    } catch {
+      alert('로그인 중 오류가 발생했습니다.')
+    } finally {
+      setLoggingIn(false)
     }
   }
 
-  useEffect(() => {
-    if (sessionStorage.getItem('mulchasa_admin') === 'true') {
-      setAuthenticated(true)
-    }
-  }, [])
+  const handleLogout = async () => {
+    await fetch('/api/admin-login', { method: 'DELETE' }).catch(() => {})
+    setAuthenticated(false)
+    setPassword('')
+  }
 
   useEffect(() => {
     if (!authenticated) return
@@ -57,22 +81,32 @@ export default function AdminPage() {
     setTherapists(data || [])
   }
 
+  // 모든 관리자 쓰기는 서버 라우트(service_role + 쿠키 인증)를 통해서만 수행
+  const callAdminAction = async (id: string, action: 'approve' | 'reject' | 'revert') => {
+    const res = await fetch('/api/admin-action', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, action }),
+    })
+    if (res.status === 401) {
+      alert('세션이 만료되었습니다. 다시 로그인해주세요.')
+      setAuthenticated(false)
+      return null
+    }
+    return res
+  }
+
   const handleApprove = async (id: string, name: string) => {
     if (!confirm(name + ' 치료사의 면허 인증을 승인하시겠습니까?\n승인 시 해당 치료사에게 안내 문자가 발송됩니다.')) return
-    setApprovingId(id)
+    setActingId(id)
     try {
-      const res = await fetch('/api/approve-therapist', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, password: process.env.NEXT_PUBLIC_ADMIN_PASSWORD }),
-      })
+      const res = await callAdminAction(id, 'approve')
+      if (!res) return
       const result = await res.json()
-
       if (!res.ok) {
         alert('승인 처리 실패: ' + (result.error || '알 수 없는 오류'))
         return
       }
-
       if (result.smsSent) {
         alert('승인 완료 · 안내 문자 발송됨: ' + name)
       } else if (result.alreadyVerified) {
@@ -84,34 +118,46 @@ export default function AdminPage() {
     } catch {
       alert('요청 중 오류가 발생했습니다. 네트워크 상태를 확인해주세요.')
     } finally {
-      setApprovingId(null)
+      setActingId(null)
     }
   }
 
   const handleReject = async (id: string, name: string) => {
     if (!confirm(name + ' 치료사의 신청을 거부하시겠습니까?')) return
-    await supabase.from('therapists').update({ verification_status: 'rejected' }).eq('id', id)
-    alert('거부 완료: ' + name)
-    refresh()
+    setActingId(id)
+    try {
+      const res = await callAdminAction(id, 'reject')
+      if (!res) return
+      if (!res.ok) { alert('거부 처리 실패'); return }
+      alert('거부 완료: ' + name)
+      refresh()
+    } finally {
+      setActingId(null)
+    }
   }
 
   const handleRevert = async (id: string, name: string) => {
     if (!confirm(name + ' 치료사를 대기 중으로 되돌리시겠습니까?')) return
-    await supabase.from('therapists').update({ verification_status: 'pending' }).eq('id', id)
-    alert('변경 완료: ' + name)
-    refresh()
-  }
-
-  const handleLogout = () => {
-    sessionStorage.removeItem('mulchasa_admin')
-    setAuthenticated(false)
-    setPassword('')
+    setActingId(id)
+    try {
+      const res = await callAdminAction(id, 'revert')
+      if (!res) return
+      if (!res.ok) { alert('변경 실패'); return }
+      alert('변경 완료: ' + name)
+      refresh()
+    } finally {
+      setActingId(null)
+    }
   }
 
   const getTypeLabel = (type: string) => {
     if (type === 'hospital_pt') return '🏥 병원 물리치료사'
     if (type === 'exercise_specialist') return '🏋️ 움직임 전문가'
     return type
+  }
+
+  if (checking) {
+    return <main className="max-w-md mx-auto min-h-screen bg-white" />
   }
 
   if (!authenticated) {
@@ -124,7 +170,7 @@ export default function AdminPage() {
             <p className="text-sm text-gray-400 mt-2">물찾사 운영자 전용</p>
           </div>
           <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleLogin()} placeholder="비밀번호 입력" className="w-full p-4 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#0A8A7B] mb-3" />
-          <button onClick={handleLogin} className="w-full py-4 bg-[#0A8A7B] text-white rounded-xl font-bold">로그인</button>
+          <button onClick={handleLogin} disabled={loggingIn} className="w-full py-4 bg-[#0A8A7B] text-white rounded-xl font-bold disabled:opacity-60">{loggingIn ? '확인 중...' : '로그인'}</button>
         </div>
       </main>
     )
@@ -198,11 +244,11 @@ export default function AdminPage() {
 
                 {tab === 'pending' ? (
                   <div className="flex gap-2">
-                    <button onClick={() => handleApprove(t.id, t.name)} disabled={approvingId === t.id} className={'flex-1 py-3 rounded-xl font-bold text-sm ' + (approvingId === t.id ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : 'bg-[#0A8A7B] text-white')}>{approvingId === t.id ? '처리 중...' : '✅ 승인'}</button>
-                    <button onClick={() => handleReject(t.id, t.name)} disabled={approvingId === t.id} className="flex-1 py-3 bg-red-50 text-red-600 rounded-xl font-bold text-sm border border-red-100 disabled:opacity-50">❌ 거부</button>
+                    <button onClick={() => handleApprove(t.id, t.name)} disabled={actingId === t.id} className={'flex-1 py-3 rounded-xl font-bold text-sm ' + (actingId === t.id ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : 'bg-[#0A8A7B] text-white')}>{actingId === t.id ? '처리 중...' : '✅ 승인'}</button>
+                    <button onClick={() => handleReject(t.id, t.name)} disabled={actingId === t.id} className="flex-1 py-3 bg-red-50 text-red-600 rounded-xl font-bold text-sm border border-red-100 disabled:opacity-50">❌ 거부</button>
                   </div>
                 ) : (
-                  <button onClick={() => handleRevert(t.id, t.name)} className="w-full py-3 bg-gray-100 text-gray-600 rounded-xl font-bold text-sm">🔄 대기 중으로 되돌리기</button>
+                  <button onClick={() => handleRevert(t.id, t.name)} disabled={actingId === t.id} className="w-full py-3 bg-gray-100 text-gray-600 rounded-xl font-bold text-sm disabled:opacity-50">🔄 대기 중으로 되돌리기</button>
                 )}
               </div>
             ))}
