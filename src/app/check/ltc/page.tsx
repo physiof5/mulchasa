@@ -273,11 +273,12 @@ function LtcResult({ input, onRestart }: { input: LtcInput; onRestart: () => voi
               <StepCard
                 title="장기요양 신청은 이렇게 해요"
                 body={[
-                  '신청서와 의사소견서가 필요해요. 65세 이상은 의사소견서를 등급판정 전까지 내도 돼요.',
+                  '신청서와 의사소견서가 필요해요. 의사소견서는 공단에서 받은 발급의뢰서를 병원에 내고 나중에 받아도 돼요.',
                   '공단 지사에 방문하거나 우편·팩스로 신청해요. 65세 이상은 노인장기요양보험 누리집에서도 신청할 수 있어요.',
-                  '가족이 대신 신청할 수 있어요. 대리인 지정서와 신분증 등이 필요해요.',
+                  '가족이 대신 신청할 수 있어요. 가족은 대신 내는 사람의 신분증이 있으면 돼요.',
                 ]}
                 actions={[
+                  { label: '신청서 서식 내려받기', href: '/settings/forms?cat=apply' },
                   { label: '신청 방법 자세히 (건강보험공단)', href: LINKS.ltcApplyGuide, external: true },
                   { label: '노인장기요양보험 누리집', href: LINKS.ltcHome, external: true },
                   { label: `공단 상담 ${PHONES.nhis.number}`, href: tel(PHONES.nhis.number) },

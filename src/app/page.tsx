@@ -203,12 +203,12 @@ export default function Home() {
           {userLat !== null ? locName : '위치 설정하기'}
           <span className="text-gray-400 text-base">▾</span>
         </button>
-        <button onClick={() => router.push('/mypage')} aria-label="내 정보" className="w-12 h-12 flex items-center justify-center text-gray-700">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-            <circle cx="12" cy="8" r="3.5" stroke="currentColor" strokeWidth="2" />
-            <path d="M5 20c0-3.5 3-6 7-6s7 2.5 7 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+        {/* 설정: 자가진단 · 돌봄 비용 · 서식자료실 · 서비스 안내 */}
+        <Link href="/settings" aria-label="설정" className="w-12 h-12 flex items-center justify-center text-gray-700">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M4 6.5h16M4 12h16M4 17.5h16" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
           </svg>
-        </button>
+        </Link>
       </div>
 
       {/* 검색처럼 보이는 입구 → 맞춤 찾기 */}
@@ -293,6 +293,14 @@ export default function Home() {
           <Link href="/check/ltc" className="bg-white border border-gray-100 rounded-2xl p-4 min-h-[112px] flex flex-col gap-1.5 active:scale-[0.98] transition-all">
             <span className="text-[24px]" aria-hidden="true">📋</span>
             <span className="text-[16px] font-bold text-gray-900 leading-snug">장기요양등급<br />예상</span>
+          </Link>
+          <Link href="/check/cost" className="col-span-2 bg-white border border-gray-100 rounded-2xl p-4 min-h-[72px] flex items-center gap-3 active:scale-[0.98] transition-all">
+            <span className="text-[24px]" aria-hidden="true">💰</span>
+            <span className="flex-1 min-w-0">
+              <span className="block text-[16px] font-bold text-gray-900 leading-snug">돌봄 비용 모의 계산</span>
+              <span className="block text-[14px] text-gray-500 mt-0.5">방문요양·주야간보호·요양원 한 달 비용</span>
+            </span>
+            <span className="text-gray-300 text-xl shrink-0" aria-hidden="true">›</span>
           </Link>
         </div>
       </section>

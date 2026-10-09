@@ -157,7 +157,7 @@ export const OFFICIAL_GRADES = [
 export const LTC_DISCLAIMER = '참고용이며 공식 판정은 국민건강보험공단 방문조사와 등급판정위원회를 거칩니다'
 
 // ── 지난 결과 (이 기기에만, 답변 없이 결과 요약만) ──────────────
-export const LAST_RESULT_KEYS = { fall: 'check_fall_last', ltc: 'check_ltc_last' } as const
+export const LAST_RESULT_KEYS = { fall: 'check_fall_last', ltc: 'check_ltc_last', cost: 'check_cost_last' } as const
 
 export interface LastResult {
   at: string // ISO 날짜

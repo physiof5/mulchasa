@@ -19,7 +19,11 @@ export default function CheckHubPage() {
   // 지난 결과 요약 (이 기기에만 저장된 값)
   const fallRaw = useLocalStorageItem(LAST_RESULT_KEYS.fall)
   const ltcRaw = useLocalStorageItem(LAST_RESULT_KEYS.ltc)
-  const last = useMemo(() => ({ fall: parseLastResult(fallRaw), ltc: parseLastResult(ltcRaw) }), [fallRaw, ltcRaw])
+  const costRaw = useLocalStorageItem(LAST_RESULT_KEYS.cost)
+  const last = useMemo(
+    () => ({ fall: parseLastResult(fallRaw), ltc: parseLastResult(ltcRaw), cost: parseLastResult(costRaw) }),
+    [fallRaw, ltcRaw, costRaw]
+  )
 
   const cards = [
     {
@@ -37,6 +41,14 @@ export default function CheckHubPage() {
       desc: '12가지 질문 + 신청 방법 안내',
       emoji: '📋',
       last: last.ltc,
+    },
+    {
+      href: '/check/cost',
+      title: '돌봄 비용 모의 계산',
+      sub: '방문요양·주야간보호·요양원',
+      desc: '2026년 공식 수가 기준',
+      emoji: '💰',
+      last: last.cost,
     },
   ]
 
@@ -105,7 +117,7 @@ export default function CheckHubPage() {
       </div>
 
       <div className="px-5 pt-3 pb-6">
-        <ShareButton path="/check" title="1분 자가진단" text="부모님 낙상 위험·장기요양등급을 1분 만에 살펴볼 수 있어요" />
+        <ShareButton path="/check" title="1분 자가진단" text="부모님 낙상 위험·장기요양등급·돌봄 비용을 1분 만에 살펴볼 수 있어요" />
       </div>
 
       <BottomNav />
