@@ -1,20 +1,36 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { supabase } from '@/lib/supabase'
+import RegionPicker from '@/components/RegionPicker'
 
 type Role = 'guardian' | 'pt'
 
 const NEEDS: Record<Role, string[]> = {
+  // 보호자·전문가 항목은 같은 순서로 짝을 맞춰 둠 (나중에 매칭에 사용)
   guardian: [
-    '집으로 오는 운동 지도',
+    '집으로 오는 운동 지도 (걷기·근력)',
+    '넘어지지 않게 돕는 운동 (낙상 예방)',
+    '집 안 위험한 곳 점검 (문턱·화장실·손잡이)',
+    '보호자가 배우는 돌봄 동작 (옮기기·자세 바꾸기)',
+    '복지용구 고르기 (보행기·안전손잡이 등)',
+    '장기요양등급·복지 제도 상담',
+    '아직 잘 모르겠어요, 상담받고 싶어요',
+  ],
+  pt: [
+    '방문 운동 지도',
     '낙상 예방 운동',
     '집 안 안전 점검',
-    '장기요양·복지 제도 상담',
-    '방문요양 센터 정보',
+    '보호자 돌봄 동작 교육',
+    '복지용구 선택 도움',
   ],
-  pt: ['방문 운동 지도', '낙상 예방 운동', '주거환경 점검', '보호자 운동 교육'],
 }
+
+// 전문가 전용 질문
+const TRANSPORTS = [
+  { value: 'car', label: '차량이 있어요' },
+  { value: 'transit', label: '대중교통으로 다녀요' },
+]
+const TIME_SLOTS = ['평일 낮', '평일 저녁', '주말']
 
 const COPY: Record<Role, {
   title: string; desc: string; regionLabel: string; regionPh: string
@@ -47,13 +63,19 @@ export default function WaitlistPage() {
   const [source, setSource] = useState<string | null>(null)
   const [name, setName] = useState('')
   const [phone, setPhone] = useState('')
-  const [region, setRegion] = useState('')
+  const [regions, setRegions] = useState<string[]>([])
   const [needs, setNeeds] = useState<string[]>([])
   const [note, setNote] = useState('')
   const [agreed, setAgreed] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [done, setDone] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // 스팸 방지: 화면을 연 시각 + 사람에게는 안 보이는 칸(허니팟)
+  const [startedAt] = useState(() => Date.now())
+  const [website, setWebsite] = useState('')
+  // 전문가 전용
+  const [transport, setTransport] = useState<'' | 'car' | 'transit'>('')
+  const [timeSlots, setTimeSlots] = useState<string[]>([])
 
   // 링크 뒤의 ?role=pt&from=insta 를 읽어 탭과 유입 경로를 정함
   useEffect(() => {
@@ -65,6 +87,9 @@ export default function WaitlistPage() {
   const switchRole = (r: Role) => {
     setRole(r)
     setNeeds([])
+    setRegions([])
+    setTransport('')
+    setTimeSlots([])
     setError(null)
   }
 
@@ -76,8 +101,9 @@ export default function WaitlistPage() {
     name.trim().length > 0 &&
     phoneDigits.length >= 10 &&
     phoneDigits.length <= 11 &&
-    region.trim().length > 0 &&
+    regions.length > 0 &&
     needs.length > 0 &&
+    (role === 'guardian' || (transport !== '' && timeSlots.length > 0)) &&
     agreed &&
     !submitting
 
@@ -85,23 +111,36 @@ export default function WaitlistPage() {
     if (!canSubmit) return
     setSubmitting(true)
     setError(null)
-    const { error } = await supabase.from('waitlist').insert({
-      role,
-      name: name.trim(),
-      phone: phoneDigits,
-      region: region.trim(),
-      needs,
-      note: note.trim() || null,
-      source,
-      agreed_privacy: agreed,
-    })
-    setSubmitting(false)
-    if (error) {
-      console.error(error)
-      setError('신청이 저장되지 않았어요. 잠시 후 다시 시도해 주세요.')
-      return
+    try {
+      const res = await fetch('/api/waitlist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          role,
+          name: name.trim(),
+          phone: phoneDigits,
+          regions,
+          needs,
+          transport: role === 'pt' ? transport : null,
+          timeSlots: role === 'pt' ? timeSlots : [],
+          note: note.trim() || null,
+          source,
+          agreed,
+          startedAt,
+          website,
+        }),
+      })
+      const result = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setError(result.error || '신청이 저장되지 않았어요. 잠시 후 다시 시도해 주세요.')
+        return
+      }
+      setDone(true)
+    } catch {
+      setError('네트워크 오류가 있었어요. 잠시 후 다시 시도해 주세요.')
+    } finally {
+      setSubmitting(false)
     }
-    setDone(true)
   }
 
   const c = COPY[role]
@@ -155,6 +194,18 @@ export default function WaitlistPage() {
       </h1>
       <p className="text-[17px] text-gray-600 mt-3 leading-relaxed">{c.desc}</p>
 
+      {/* 스팸 방지용 숨은 칸 — 사람에게는 보이지 않아요 */}
+      <input
+        type="text"
+        name="website"
+        value={website}
+        onChange={(e) => setWebsite(e.target.value)}
+        tabIndex={-1}
+        autoComplete="off"
+        aria-hidden="true"
+        className="absolute -left-[9999px] w-px h-px opacity-0"
+      />
+
       {/* 입력 */}
       <div className="mt-8 flex flex-col gap-6">
         <Field label="이름">
@@ -177,12 +228,7 @@ export default function WaitlistPage() {
         </Field>
 
         <Field label={c.regionLabel}>
-          <input
-            value={region}
-            onChange={(e) => setRegion(e.target.value)}
-            placeholder={c.regionPh}
-            className="w-full p-4 border border-gray-200 rounded-xl text-[17px] focus:outline-none focus:border-[#0A8A7B]"
-          />
+          <RegionPicker multiple={role === 'pt'} value={regions} onChange={setRegions} />
         </Field>
 
         <Field label={c.needLabel}>
@@ -207,6 +253,56 @@ export default function WaitlistPage() {
           </div>
         </Field>
 
+        {role === 'pt' && (
+          <>
+            <Field label="방문할 때 이동 수단은?">
+              <div className="grid grid-cols-2 gap-2">
+                {TRANSPORTS.map((t) => {
+                  const on = transport === t.value
+                  return (
+                    <button
+                      key={t.value}
+                      onClick={() => setTransport(t.value as 'car' | 'transit')}
+                      className="min-h-[56px] p-3 rounded-xl border-2 text-[16px] font-medium transition-all"
+                      style={
+                        on
+                          ? { borderColor: GREEN, background: '#E8F6F4', color: '#0F6E56' }
+                          : { borderColor: '#E5E7EB', background: 'white', color: '#374151' }
+                      }
+                    >
+                      {on ? '✓ ' : ''}{t.label}
+                    </button>
+                  )
+                })}
+              </div>
+            </Field>
+
+            <Field label="활동 가능한 시간대 (여러 개 선택)">
+              <div className="grid grid-cols-3 gap-2">
+                {TIME_SLOTS.map((s) => {
+                  const on = timeSlots.includes(s)
+                  return (
+                    <button
+                      key={s}
+                      onClick={() =>
+                        setTimeSlots((prev) => (prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]))
+                      }
+                      className="min-h-[56px] p-3 rounded-xl border-2 text-[16px] font-medium transition-all"
+                      style={
+                        on
+                          ? { borderColor: GREEN, background: '#E8F6F4', color: '#0F6E56' }
+                          : { borderColor: '#E5E7EB', background: 'white', color: '#374151' }
+                      }
+                    >
+                      {on ? '✓ ' : ''}{s}
+                    </button>
+                  )
+                })}
+              </div>
+            </Field>
+          </>
+        )}
+
         <Field label={c.noteLabel}>
           <textarea
             value={note}
@@ -221,7 +317,7 @@ export default function WaitlistPage() {
         {/* 개인정보 동의 */}
         <div className="rounded-xl bg-gray-50 p-4 text-[14px] text-gray-600 leading-relaxed">
           <p className="font-bold text-gray-800 mb-1">개인정보 수집·이용 동의 (필수)</p>
-          <p>· 수집 항목: 이름, 연락처, 지역, 선택한 도움 항목, 남기신 메모</p>
+          <p>· 수집 항목: 이름, 연락처, 지역, 선택한 항목{role === 'pt' ? ', 이동 수단, 활동 시간대' : ''}, 남기신 메모</p>
           <p>· 이용 목적: 보필 오픈 소식 및 서비스 연결 안내 연락</p>
           <p>· 보관 기간: 오픈 안내 후 1년, 또는 철회 요청 시 즉시 삭제</p>
           <p>· 동의하지 않으실 수 있으며, 이 경우 사전 신청이 어려워요.</p>
