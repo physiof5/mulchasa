@@ -65,7 +65,7 @@ export async function POST(req: NextRequest) {
         process.env.SOLAPI_API_SECRET!
       )
       const text =
-        `[물찾사] ${therapist.name} 선생님, 면허 인증이 승인되었습니다.\n` +
+        `[물찾사] ${therapist.name}님, 면허 인증이 승인되었습니다.\n` +
         `이제 검색 결과에 프로필이 노출됩니다. 프로필 사진·자격증 등은 마이페이지에서 추가/수정하실 수 있습니다.`
  
       await messageService.send({

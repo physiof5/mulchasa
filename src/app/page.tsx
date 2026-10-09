@@ -13,11 +13,6 @@ interface Review {
   therapist_name: string | null
 }
 
-const FALLBACK_REVIEWS: Review[] = [
-  { id: 'd1', author_name: '김혜지', rating: 5, content: '허리 디스크로 3개월 고생했는데, 면허 보유 선생님이라 믿고 맡겼어요. 통증이 확실히 줄었습니다.', therapist_name: '박치료 선생님' },
-  { id: 'd2', author_name: '신소은', rating: 5, content: '무릎 수술 후 재활을 받았어요. 자격이 검증된 분이라 운동 하나하나 안심하고 따라갈 수 있었습니다.', therapist_name: '이재활 선생님' },
-  { id: 'd3', author_name: '정민우', rating: 5, content: '어깨 통증 때문에 찾았는데 친절하게 원인부터 설명해주셔서 좋았어요. 자세 교정도 받고 있습니다.', therapist_name: '최움직임 선생님' },
-]
 
 export default function Home() {
   const router = useRouter()
@@ -25,7 +20,7 @@ export default function Home() {
   const [locName] = useState('내 주변')
   const [userLat, setUserLat] = useState<number | null>(null)
   const [userLng, setUserLng] = useState<number | null>(null)
-  const [reviews, setReviews] = useState<Review[]>(FALLBACK_REVIEWS)
+  const [reviews, setReviews] = useState<Review[]>([])
   const [geoLoading, setGeoLoading] = useState(false)
   const [geoError, setGeoError] = useState<string | null>(null)
 
@@ -68,7 +63,7 @@ export default function Home() {
           setReviews(mapped)
         }
       } catch {
-        // 더미 유지
+        // 불러오기 실패 시 후기 영역을 숨김
       }
     }
     fetchReviews()
@@ -234,26 +229,28 @@ export default function Home() {
 
       <BlogFeed />
 
-      <div className="px-5 pb-4">
-        <div className="text-base font-bold text-gray-900 mb-2.5">실시간 후기</div>
-        <div className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1" style={{ scrollbarWidth: 'none' }}>
-          {reviews.map((r) => (
-            <div key={r.id} className="shrink-0 w-[280px] bg-white border border-gray-100 rounded-2xl p-4">
-              <div className="flex items-center gap-2.5 mb-2">
-                <div className="w-9 h-9 rounded-full flex items-center justify-center text-[13px] font-bold" style={{ background: '#E1F5EE', color: '#0F6E56' }}>
-                  {r.author_name.charAt(0)}
+      {reviews.length > 0 && (
+        <div className="px-5 pb-4">
+          <div className="text-base font-bold text-gray-900 mb-2.5">실시간 후기</div>
+          <div className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1" style={{ scrollbarWidth: 'none' }}>
+            {reviews.map((r) => (
+              <div key={r.id} className="shrink-0 w-[280px] bg-white border border-gray-100 rounded-2xl p-4">
+                <div className="flex items-center gap-2.5 mb-2">
+                  <div className="w-9 h-9 rounded-full flex items-center justify-center text-[13px] font-bold" style={{ background: '#E1F5EE', color: '#0F6E56' }}>
+                    {r.author_name.charAt(0)}
+                  </div>
+                  <div>
+                    <div className="text-sm font-bold text-gray-900">{r.author_name}</div>
+                    <div className="text-xs" style={{ color: '#BA7517' }}>★ {r.rating.toFixed(1)}</div>
+                  </div>
                 </div>
-                <div>
-                  <div className="text-sm font-bold text-gray-900">{r.author_name}</div>
-                  <div className="text-xs" style={{ color: '#BA7517' }}>★ {r.rating.toFixed(1)}</div>
-                </div>
+                <div className="text-[13px] text-gray-600 leading-relaxed line-clamp-3">{r.content}</div>
+                {r.therapist_name && <div className="text-[11px] text-gray-400 mt-2">{r.therapist_name}</div>}
               </div>
-              <div className="text-[13px] text-gray-600 leading-relaxed line-clamp-3">{r.content}</div>
-              {r.therapist_name && <div className="text-[11px] text-gray-400 mt-2">{r.therapist_name}</div>}
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       <div className="mx-5 mb-8 p-5 rounded-2xl border" style={{ background: 'linear-gradient(to bottom right, #E8F6F4, #ffffff)', borderColor: 'rgba(10,138,123,0.1)' }}>
         <p className="text-sm font-bold text-gray-900 mb-1">물리치료사이신가요? 👋</p>

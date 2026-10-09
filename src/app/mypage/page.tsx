@@ -422,7 +422,7 @@ export default function MyPage() {
         {step === 'edit' && therapist && (
           <div className="space-y-6">
             <div className="bg-gray-50 rounded-2xl p-4">
-              <p className="text-sm font-bold text-gray-900">{therapist.name} 선생님</p>
+              <p className="text-sm font-bold text-gray-900">{therapist.name}님</p>
               <p className="text-xs text-gray-400 mt-1">경력 {therapist.years_experience}년 · 면허번호 {therapist.license_number}</p>
             </div>
 

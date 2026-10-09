@@ -3,7 +3,7 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin'
  
 export const runtime = 'nodejs'
  
-// 방문재활 요청서 등록
+// 방문 운동 지도 요청서 등록
 // 환자는 계정이 없으므로, 등록 시 access_token을 발급해 본인 확인에 사용합니다.
 export async function POST(req: Request) {
   try {
@@ -27,6 +27,11 @@ export async function POST(req: Request) {
       preferredSlots,
     } = body
  
+    // 개인정보 동의 확인 (3가지 모두 필수)
+    if (body.agreeCollect !== true || body.agreeSensitive !== true || body.agreeShare !== true) {
+      return NextResponse.json({ error: '개인정보 처리에 동의해주세요' }, { status: 400 })
+    }
+
     // 최소 검증
     if (!nickname || !String(nickname).trim()) {
       return NextResponse.json({ error: '호칭을 입력해주세요' }, { status: 400 })
@@ -59,6 +64,7 @@ export async function POST(req: Request) {
         area_label: areaLabel || null,
         address_detail: addressDetail ? String(addressDetail).slice(0, 200) : null,
         preferred_slots: preferredSlots,
+        consented_at: new Date().toISOString(),
       })
       .select('id, access_token')
       .single()

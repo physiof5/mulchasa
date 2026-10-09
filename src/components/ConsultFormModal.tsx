@@ -83,7 +83,7 @@ export default function ConsultFormModal({
       >
         <div className="sticky top-0 bg-white px-5 py-4 border-b border-gray-100 flex items-center justify-between">
           <div>
-            <h2 className="text-lg font-bold text-gray-900">{therapistName} 선생님께 상담 요청</h2>
+            <h2 className="text-lg font-bold text-gray-900">{therapistName}님께 상담 요청</h2>
             <p className="text-xs text-gray-400 mt-1">증상 정보를 전달하면 빠른 답변을 받을 수 있어요</p>
           </div>
           <button onClick={onClose} className="text-gray-400 text-2xl leading-none">×</button>

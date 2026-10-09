@@ -622,7 +622,7 @@ export default function RegisterPage() {
             <div className="text-6xl mb-6">🎉</div>
             <h2 className="text-xl font-extrabold text-gray-900 mb-3">가입 신청 완료!</h2>
             <p className="text-sm text-gray-500 leading-relaxed mb-8">
-              {name} 선생님의 신청이 접수되었습니다.<br />
+              {name}님의 신청이 접수되었습니다.<br />
               보건복지부 면허 인증 후 24시간 내<br />
               연락처({phone})로 안내드리겠습니다.
             </p>

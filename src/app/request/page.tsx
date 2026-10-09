@@ -68,6 +68,16 @@ function RequestForm() {
   const [note, setNote] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [done, setDone] = useState(false)
+  const [agreeCollect, setAgreeCollect] = useState(false)
+  const [agreeSensitive, setAgreeSensitive] = useState(false)
+  const [agreeShare, setAgreeShare] = useState(false)
+  const allAgreed = agreeCollect && agreeSensitive && agreeShare
+  const toggleAll = () => {
+    const next = !allAgreed
+    setAgreeCollect(next)
+    setAgreeSensitive(next)
+    setAgreeShare(next)
+  }
 
   const toggleSlot = (day: number, slot: string) => {
     const key = `${day}-${slot}`
@@ -92,7 +102,7 @@ function RequestForm() {
   }
 
   const canSubmit =
-    nickname.trim() && contact.trim() && addressResult && slots.length > 0 && !submitting
+    nickname.trim() && contact.trim() && addressResult && slots.length > 0 && allAgreed && !submitting
 
   const handleSubmit = async () => {
     if (!addressResult) return
@@ -117,6 +127,9 @@ function RequestForm() {
           areaLabel: toAreaLabel(addressResult.address),
           addressDetail,
           preferredSlots: slots,
+          agreeCollect,
+          agreeSensitive,
+          agreeShare,
         }),
       })
       const result = await res.json()
@@ -344,9 +357,66 @@ function RequestForm() {
           />
         </div>
 
-        <p className="text-[11px] text-gray-300 leading-relaxed text-center">
-          물찾사의 모든 전문가는 물리치료사 면허를 보유하고 있습니다 🛡️<br />
-          방문 서비스는 운동·재활 중심으로 제공됩니다.
+        {/* 개인정보 동의 */}
+        <div className="rounded-2xl border border-gray-200 overflow-hidden">
+          <button
+            onClick={toggleAll}
+            className="w-full flex items-center gap-3 p-4 text-left"
+            style={allAgreed ? { background: '#E8F6F4' } : { background: '#F9FAFB' }}
+          >
+            <span
+              className="w-6 h-6 rounded-md flex items-center justify-center text-white text-sm shrink-0"
+              style={{ background: allAgreed ? BRAND : '#D1D5DB' }}
+            >
+              ✓
+            </span>
+            <span className="text-[16px] font-bold text-gray-900">아래 내용에 모두 동의해요</span>
+          </button>
+
+          <div className="p-4 space-y-4 border-t border-gray-100">
+            <ConsentRow
+              checked={agreeCollect}
+              onChange={setAgreeCollect}
+              title="[필수] 개인정보 수집·이용"
+              lines={[
+                '항목: 호칭·연락처·주소·시간·메모',
+                '목적: 운동 전문가 연결·연락',
+                '보관: 마감 후 6개월, 요청 시 삭제',
+              ]}
+            />
+
+            <ConsentRow
+              checked={agreeSensitive}
+              onChange={setAgreeSensitive}
+              title="[필수] 건강 정보(민감정보) 처리"
+              lines={[
+                '항목: 부위·기간·상태·통증·메모',
+                '목적: 알맞은 운동 지도 제안',
+                '보관: 위와 같음',
+              ]}
+            />
+
+            <ConsentRow
+              checked={agreeShare}
+              onChange={setAgreeShare}
+              title="[필수] 개인정보 제3자 제공"
+              lines={[
+                '전문가들: 지역·건강 정보·시간 열람',
+                '수락한 전문가: 연락처·상세 주소',
+                '목적: 일정 조율·운동 지도',
+                '보관: 서비스 종료 시까지',
+              ]}
+            />
+
+            <p className="text-[13px] text-gray-500 leading-relaxed">
+              동의하지 않으실 수 있지만, 이 경우 요청서를 보낼 수 없어요.
+            </p>
+          </div>
+        </div>
+
+        <p className="text-[12px] text-gray-400 leading-relaxed text-center">
+          모든 전문가는 물리치료사 면허를 확인했어요 🛡️<br />
+          방문 서비스는 운동 지도 중심이며, 의료기관의 치료를 대신하지 않아요.
         </p>
       </div>
 
@@ -374,5 +444,35 @@ export default function RequestPage() {
     }>
       <RequestForm />
     </Suspense>
+  )
+}
+function ConsentRow({
+  checked,
+  onChange,
+  title,
+  lines,
+}: {
+  checked: boolean
+  onChange: (v: boolean) => void
+  title: string
+  lines: string[]
+}) {
+  return (
+    <label className="flex gap-3 cursor-pointer">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        className="w-6 h-6 mt-0.5 shrink-0 accent-[#0A8A7B]"
+      />
+      <span className="min-w-0">
+        <span className="block text-[15px] font-bold text-gray-900 mb-1">{title}</span>
+        {lines.map((line) => (
+          <span key={line} className="block text-[13px] text-gray-500 leading-relaxed">
+            · {line}
+          </span>
+        ))}
+      </span>
+    </label>
   )
 }
