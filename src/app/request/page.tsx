@@ -71,6 +71,9 @@ function RequestForm() {
   const [agreeCollect, setAgreeCollect] = useState(false)
   const [agreeSensitive, setAgreeSensitive] = useState(false)
   const [agreeShare, setAgreeShare] = useState(false)
+  // 스팸 방지: 화면을 연 시각 + 사람에게는 안 보이는 칸(허니팟)
+  const [startedAt] = useState(() => Date.now())
+  const [website, setWebsite] = useState('')
   const allAgreed = agreeCollect && agreeSensitive && agreeShare
   const toggleAll = () => {
     const next = !allAgreed
@@ -130,6 +133,8 @@ function RequestForm() {
           agreeCollect,
           agreeSensitive,
           agreeShare,
+          startedAt,
+          website,
         }),
       })
       const result = await res.json()
@@ -205,6 +210,18 @@ function RequestForm() {
             </div>
           </div>
         )}
+
+        {/* 스팸 방지용 숨은 칸 — 사람에게는 보이지 않아요 */}
+        <input
+          type="text"
+          name="website"
+          value={website}
+          onChange={(e) => setWebsite(e.target.value)}
+          tabIndex={-1}
+          autoComplete="off"
+          aria-hidden="true"
+          className="absolute -left-[9999px] w-px h-px opacity-0"
+        />
 
         {/* 호칭 */}
         <div>
