@@ -51,14 +51,31 @@ export async function POST(req: Request) {
     if (body.agreed !== true) {
       return NextResponse.json({ error: '개인정보 수집·이용에 동의해 주세요.' }, { status: 400 })
     }
-    // 전문가 전용: 이동 수단 + 활동 시간대
+    // 보호자: 받고 싶은 장소 (home / center / both)
+    const place = ['home', 'center', 'both'].includes(body.place) ? body.place : null
+    if (role === 'guardian' && !place) {
+      return NextResponse.json({ error: '운동 지도를 받고 싶은 곳을 골라 주세요.' }, { status: 400 })
+    }
+
+    // 전문가: 활동 방식(방문/센터) + 이동 수단 + 활동 시간대
+    const modes: string[] = Array.isArray(body.modes)
+      ? ['home', 'center'].filter((m) => body.modes.includes(m))
+      : []
     const transport = body.transport === 'car' || body.transport === 'transit' ? body.transport : null
     const timeSlots: string[] = Array.isArray(body.timeSlots)
       ? TIME_SLOTS.filter((s) => body.timeSlots.includes(s))
       : []
-    if (role === 'pt' && (!transport || timeSlots.length === 0)) {
-      return NextResponse.json({ error: '이동 수단과 활동 시간대를 골라 주세요.' }, { status: 400 })
+    const centerName = modes.includes('center') ? clean(body.centerName, 40) || null : null
+    if (role === 'pt') {
+      if (modes.length === 0 || timeSlots.length === 0) {
+        return NextResponse.json({ error: '활동 방식과 시간대를 골라 주세요.' }, { status: 400 })
+      }
+      if (modes.includes('home') && !transport) {
+        return NextResponse.json({ error: '방문할 때 이동 수단을 골라 주세요.' }, { status: 400 })
+      }
     }
+    const serviceMode =
+      role === 'guardian' ? place : modes.length === 2 ? 'both' : modes[0]
 
     if (role === 'guardian' && regions.length !== 1) {
       return NextResponse.json({ error: '사시는 지역을 하나 골라 주세요.' }, { status: 400 })
@@ -103,7 +120,9 @@ export async function POST(req: Request) {
       note,
       source,
       agreed_privacy: true,
-      has_car: role === 'pt' ? transport === 'car' : null,
+      service_mode: serviceMode,
+      center_name: role === 'pt' ? centerName : null,
+      has_car: role === 'pt' && modes.includes('home') ? transport === 'car' : null,
       time_slots: role === 'pt' ? timeSlots : [],
       ip_hash: ipHash,
     })
