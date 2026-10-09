@@ -5,6 +5,8 @@ import { useSearchParams, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import Script from 'next/script'
 import ConsultFormModal from '@/components/ConsultFormModal'
+import PhotoTriplet from '@/components/PhotoTriplet'
+import { pickPhotos } from '@/lib/squareImage'
 import { practitionerLabel, summarizeAvailability } from '@/lib/practitioner'
 
 interface Therapist {
@@ -27,6 +29,8 @@ interface Therapist {
   service_mode: string | null
   visit_radius_km: number | null
   availability?: string[]
+  /** 대표 사진 (정사각형, 최대 3장) */
+  photos?: string[]
 }
 
 declare global {
@@ -82,22 +86,7 @@ const TYPE_FILTERS = [
   { label: '🏠 방문', value: 'visit' },
 ]
 
-// 프로필 이미지 또는 플레이스홀더 (와이드 배너용)
-function WideImage({ url, name }: { url: string | null; name: string }) {
-  if (url) {
-    return <img src={url} alt={name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-  }
-  return (
-    <div style={{ width: '100%', height: '100%', background: 'linear-gradient(135deg, #d4e8e3, #a8d4c8)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <svg width="64" height="64" viewBox="0 0 24 24" fill="none" style={{ opacity: 0.45 }}>
-        <circle cx="12" cy="8" r="4" fill="#fff" />
-        <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" stroke="#fff" strokeWidth="2" strokeLinecap="round" />
-      </svg>
-    </div>
-  )
-}
-
-// 와이드 배너형 결과 카드
+// 와이드 배너형 결과 카드 → 대표 사진 3장(정사각형) 카드
 function ResultCard({ t, onProfile, onConsult, isVisitMode }: {
   t: Therapist
   onProfile: () => void
@@ -108,9 +97,9 @@ function ResultCard({ t, onProfile, onConsult, isVisitMode }: {
   const canVisit = t.service_mode === 'visit' || t.service_mode === 'both'
   return (
     <div className="bg-white border border-gray-100 rounded-2xl overflow-hidden">
-      {/* 와이드 사진 배너 */}
-      <div className="relative cursor-pointer" style={{ height: 170 }} onClick={onProfile}>
-        <WideImage url={t.profile_image_url} name={t.name} />
+      {/* 대표 사진 3장 (정사각형) */}
+      <div className="relative cursor-pointer" onClick={onProfile}>
+        <PhotoTriplet urls={t.photos ?? pickPhotos(null, t.profile_image_url)} name={t.name} />
         <span className="absolute top-3 left-3 bg-white/95 text-[11px] font-semibold px-2.5 py-1 rounded-md flex items-center gap-1" style={{ color: '#0F6E56' }}>
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" fill="#0A8A7B" /><path d="m8 12 3 3 5-6" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
           면허 인증
@@ -315,11 +304,9 @@ function MapBottomSheet({ therapist, onClose, onConsult, onProfile }: {
         <div className="text-xs text-gray-400 mt-0.5">{typeLabel(therapist.practitioner_type)}</div>
       </div>
 
-      {/* 와이드 사진 */}
+      {/* 대표 사진 3장 (정사각형) */}
       <div className="px-5 mb-4 cursor-pointer" onClick={onProfile}>
-        <div className="rounded-2xl overflow-hidden" style={{ height: 150 }}>
-          <WideImage url={therapist.profile_image_url} name={therapist.name} />
-        </div>
+        <PhotoTriplet urls={therapist.photos ?? pickPhotos(null, therapist.profile_image_url)} name={therapist.name} rounded="rounded-2xl" />
       </div>
 
       {/* 정보 */}
@@ -471,6 +458,14 @@ function SearchContent() {
 
       if (tData.length === 0) { setTherapists([]); setLoading(false); return }
 
+      // 대표 사진 3장 — 따로 읽어서, 칸이 아직 없어도 검색은 그대로 되게
+      const photoMap: Record<string, unknown> = {}
+      const { data: photoRows, error: photoError } = await supabase
+        .from('therapists')
+        .select('id, photo_urls')
+        .in('id', tData.map(t => t.id))
+      if (!photoError) (photoRows || []).forEach(r => { photoMap[r.id] = r.photo_urls })
+
       // 각 치료사의 태그 전체 로드 (표시용)
       const { data: allTtData } = await supabase
         .from('therapist_tags')
@@ -521,6 +516,7 @@ function SearchContent() {
           reviewCount: rv ? rv.count : 0,
           purposeMatch: purposeMatchedIds.has(t.id),
           availability: availabilityMap[t.id] || [],
+          photos: pickPhotos(photoMap[t.id], t.profile_image_url),
         }
       })
 

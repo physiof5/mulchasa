@@ -19,10 +19,10 @@ const GREEN = '#0A8A7B'
 
 // 보호자가 '병명'이 아니라 '지금 상황'으로 고르는 입구 → 전문가 운동 지도 분야(tags.label)로 연결
 const SITUATIONS = [
-  { label: '혼자 일어나기·\n걷기가 힘들어요', tag: '일상생활 동작 회복', emoji: '🚶' },
-  { label: '자꾸 넘어질까\n걱정돼요', tag: '보행·균형(낙상 예방)', emoji: '🧓' },
-  { label: '수술 후 회복\n운동이 필요해요', tag: '수술 후 재활 운동', emoji: '🩹' },
-  { label: '허리·무릎이\n불편해요', tag: '근골격 재활 운동', emoji: '🦵' },
+  { label: '혼자 일어나기·\n걷기가 힘들어요', tag: '일상생활 동작 회복' },
+  { label: '자꾸 넘어질까\n걱정돼요', tag: '보행·균형(낙상 예방)' },
+  { label: '수술 후 회복\n운동이 필요해요', tag: '수술 후 재활 운동' },
+  { label: '허리·무릎이\n불편해요', tag: '근골격 재활 운동' },
 ]
 const NEURO_TAG = '신경계 재활 운동'
 
@@ -268,9 +268,8 @@ export default function Home() {
             <button
               key={s.tag}
               onClick={() => goPurpose(s.tag)}
-              className="bg-white border border-gray-100 rounded-2xl p-4 min-h-[96px] text-left flex flex-col gap-1.5 active:scale-[0.98] transition-all"
+              className="bg-white border border-gray-100 rounded-2xl p-4 min-h-[80px] text-left flex flex-col justify-center active:scale-[0.98] transition-all"
             >
-              <span className="text-[22px]">{s.emoji}</span>
               <span className="text-[15px] font-semibold text-gray-800 leading-snug whitespace-pre-line">{s.label}</span>
             </button>
           ))}
@@ -286,12 +285,10 @@ export default function Home() {
         <h2 className="text-[18px] font-bold text-gray-900">1분 자가진단</h2>
         <p className="text-[14px] text-gray-500 mt-0.5 mb-3">설치 없이 바로, 결과는 이 기기에만 남아요</p>
         <div className="grid grid-cols-2 gap-2.5">
-          <Link href="/check/fall" className="bg-white border border-gray-100 rounded-2xl p-4 min-h-[112px] flex flex-col gap-1.5 active:scale-[0.98] transition-all">
-            <span className="text-[24px]" aria-hidden="true">🧓</span>
+          <Link href="/check/fall" className="bg-white border border-gray-100 rounded-2xl p-4 min-h-[80px] flex flex-col justify-center active:scale-[0.98] transition-all">
             <span className="text-[16px] font-bold text-gray-900 leading-snug">넘어질 위험<br />체크</span>
           </Link>
-          <Link href="/check/ltc" className="bg-white border border-gray-100 rounded-2xl p-4 min-h-[112px] flex flex-col gap-1.5 active:scale-[0.98] transition-all">
-            <span className="text-[24px]" aria-hidden="true">📋</span>
+          <Link href="/check/ltc" className="bg-white border border-gray-100 rounded-2xl p-4 min-h-[80px] flex flex-col justify-center active:scale-[0.98] transition-all">
             <span className="text-[16px] font-bold text-gray-900 leading-snug">장기요양등급<br />예상</span>
           </Link>
           <Link href="/check/cost" className="col-span-2 bg-white border border-gray-100 rounded-2xl p-4 min-h-[72px] flex items-center gap-3 active:scale-[0.98] transition-all">

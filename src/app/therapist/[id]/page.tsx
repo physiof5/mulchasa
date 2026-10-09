@@ -4,6 +4,8 @@ import { useEffect, useState, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import ConsultFormModal from '@/components/ConsultFormModal'
+import PhotoTriplet from '@/components/PhotoTriplet'
+import { pickPhotos } from '@/lib/squareImage'
 import { practitionerLabel, workTypeLabels, summarizeAvailability, PRACTICE_RULES, FAQ_QUESTIONS, cleanFaq } from '@/lib/practitioner'
 
 interface Therapist {
@@ -47,6 +49,7 @@ export default function TherapistDetailPage() {
   const [reviews, setReviews] = useState<Review[]>([])
   const [availability, setAvailability] = useState<string[]>([])
   const [faq, setFaq] = useState<Record<string, string>>({})
+  const [photos, setPhotos] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
   const [showReviewForm, setShowReviewForm] = useState(false)
@@ -107,6 +110,10 @@ export default function TherapistDetailPage() {
       // 질문답변은 따로 읽음 (칸이 없거나 막혀 있어도 프로필은 그대로 보이게)
       const { data: faqRow } = await supabase.from('therapists').select('faq').eq('id', id).single()
       setFaq(cleanFaq(faqRow?.faq))
+
+      // 대표 사진 3장도 따로 읽음
+      const { data: photoRow, error: photoError } = await supabase.from('therapists').select('photo_urls').eq('id', id).single()
+      if (!photoError) setPhotos(pickPhotos(photoRow?.photo_urls))
 
       await fetchReviews(id)
       setLoading(false)
@@ -189,6 +196,7 @@ export default function TherapistDetailPage() {
 
   const tabList = [
     { id: 'intro', label: '정보', show: true },
+    { id: 'photos', label: '사진', show: photos.length > 0 },
     { id: 'specialty', label: '전문분야', show: bodyParts.length > 0 || purposes.length > 0 },
     { id: 'faq', label: '질문답변', show: faqItems.length > 0 },
     { id: 'certs', label: '자격', show: !!(therapist?.certifications && therapist.certifications.length > 0) },
@@ -216,7 +224,7 @@ export default function TherapistDetailPage() {
     })
     return () => observer.disconnect()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, therapist, tags.length, faqItems.length])
+  }, [loading, therapist, tags.length, faqItems.length, photos.length])
 
   const scrollToSection = (id: string) => {
     const el = document.getElementById(id)
@@ -391,6 +399,14 @@ export default function TherapistDetailPage() {
           <p className="text-[12px] text-gray-400 mt-2 leading-relaxed">진단이나 치료가 필요하면 병원·의원 진료를 먼저 받아 주세요.</p>
         </div>
       </section>
+
+      {/* ===== 대표 사진 ===== */}
+      {photos.length > 0 && (
+        <section id="photos" className="bg-white px-5 py-5 mb-2 scroll-mt-28">
+          <h3 className="text-sm font-bold text-gray-900 mb-3">📷 사진 {photos.length}</h3>
+          <PhotoTriplet urls={photos} name={therapist.name} gap={6} linkable />
+        </section>
+      )}
 
       {/* ===== 전문분야 ===== */}
       {(bodyParts.length > 0 || purposes.length > 0) && (

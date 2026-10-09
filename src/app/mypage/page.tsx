@@ -8,6 +8,9 @@ import {
   hasCenterWork, hasVisitWork, hasPlaceWork, deriveServiceMode,
   cleanFaq, findBannedPhrase, bannedMessage, toOpenChatUrl,
 } from '@/lib/practitioner'
+import MyProfileView from '@/components/MyProfileView'
+import SquareCropper from '@/components/SquareCropper'
+import { PHOTO_MAX, pickPhotos } from '@/lib/squareImage'
 
 const VISIT_RADIUS_OPTIONS = [3, 5, 10, 20, 30]
 
@@ -41,6 +44,23 @@ const CERTIFICATION_OPTIONS = [
   'ACSM',
 ]
 
+// 대표 사진 한 칸: 이미 올린 사진(url) 또는 새로 고른 사진(blob)
+interface PhotoSlot {
+  url: string | null
+  blob: Blob | null
+  preview: string
+  /** 새로 고른 사진의 원본 (다시 자르기용) */
+  source?: File
+}
+
+// 정사각형 맞추기 화면에 차례로 띄울 사진
+interface CropJob {
+  file: File
+  target: 'photo' | 'profile'
+  /** 이미 넣은 대표 사진을 다시 자를 때 그 자리 */
+  replaceIndex?: number
+}
+
 interface Therapist {
   id: string
   name: string
@@ -66,7 +86,8 @@ interface Therapist {
 
 export default function MyPage() {
   const router = useRouter()
-  const [step, setStep] = useState<'login' | 'edit' | 'done'>('login')
+  // 로그인하면 '내 프로필'(view)을 먼저 보여 주고, 수정은 버튼으로 들어간다
+  const [step, setStep] = useState<'login' | 'view' | 'edit'>('login')
   const [checking, setChecking] = useState(true)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -90,6 +111,14 @@ export default function MyPage() {
   const [profileImage, setProfileImage] = useState<File | null>(null)
   const [profileImagePreview, setProfileImagePreview] = useState<string | null>(null)
   const [uploadingImage, setUploadingImage] = useState(false)
+  // 대표 사진 3장 (정사각형)
+  const [savedPhotos, setSavedPhotos] = useState<string[]>([])
+  const [photoSlots, setPhotoSlots] = useState<PhotoSlot[]>([])
+  const [photoError, setPhotoError] = useState('')
+  const [rating, setRating] = useState<{ avg: number; count: number } | null>(null)
+  const [notice, setNotice] = useState('')
+  const [cropQueue, setCropQueue] = useState<CropJob[]>([])
+  const [cropTotal, setCropTotal] = useState(0)
   // 활동 형태 · 방문 범위 · 일정
   const [workTypes, setWorkTypes] = useState<string[]>([])
   const [visitRadius, setVisitRadius] = useState<number>(10)
@@ -134,13 +163,73 @@ export default function MyPage() {
     )
   }
 
+  // 사진을 고르면 바로 '정사각형 맞추기' 화면으로
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
+    e.target.value = ''
     if (!file) return
-    setProfileImage(file)
-    const reader = new FileReader()
-    reader.onloadend = () => setProfileImagePreview(reader.result as string)
-    reader.readAsDataURL(file)
+    setCropTotal(1)
+    setCropQueue([{ file, target: 'profile' }])
+  }
+
+  const handlePhotoAdd = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || [])
+    e.target.value = ''
+    setPhotoError('')
+    const room = PHOTO_MAX - photoSlots.length
+    if (files.length > room) setPhotoError(`대표 사진은 ${PHOTO_MAX}장까지예요. 앞의 ${room}장만 넣을게요.`)
+    const jobs = files.slice(0, room).map(file => ({ file, target: 'photo' as const }))
+    if (jobs.length === 0) return
+    setCropTotal(jobs.length)
+    setCropQueue(jobs)
+  }
+
+  const recropPhoto = (index: number) => {
+    const source = photoSlots[index]?.source
+    if (!source) return
+    setCropTotal(1)
+    setCropQueue([{ file: source, target: 'photo', replaceIndex: index }])
+  }
+
+  const finishCrop = (blob: Blob | null) => {
+    const job = cropQueue[0]
+    if (job && blob) {
+      const preview = URL.createObjectURL(blob)
+      if (job.target === 'profile') {
+        setProfileImage(new File([blob], 'profile.jpg', { type: 'image/jpeg' }))
+        setProfileImagePreview(preview)
+      } else if (job.replaceIndex !== undefined) {
+        const at = job.replaceIndex
+        setPhotoSlots(prev => prev.map((s, i) => (i === at ? { url: null, blob, preview, source: job.file } : s)))
+      } else {
+        setPhotoSlots(prev => (prev.length >= PHOTO_MAX ? prev : [...prev, { url: null, blob, preview, source: job.file }]))
+      }
+    }
+    setCropQueue(q => q.slice(1))
+  }
+
+  const removePhoto = (index: number) => setPhotoSlots(prev => prev.filter((_, i) => i !== index))
+
+  // 고른 사진을 맨 앞(검색 목록 첫 칸)으로
+  const makeFirstPhoto = (index: number) =>
+    setPhotoSlots(prev => [prev[index], ...prev.filter((_, i) => i !== index)])
+
+  // 새로 고른 사진만 올리고, 최종 순서대로 주소 목록을 만든다
+  const uploadPhotos = async (therapistId: string): Promise<string[] | null> => {
+    const urls: string[] = []
+    for (let i = 0; i < photoSlots.length; i++) {
+      const slot = photoSlots[i]
+      if (slot.url) { urls.push(slot.url); continue }
+      if (!slot.blob) continue
+      const path = `photos/${therapistId}/${Date.now()}_${i}.jpg`
+      const { error } = await supabase.storage.from('profiles').upload(path, slot.blob, { contentType: 'image/jpeg', upsert: false })
+      if (error) {
+        console.error('대표 사진 업로드 실패:', error)
+        return null
+      }
+      urls.push(supabase.storage.from('profiles').getPublicUrl(path).data.publicUrl)
+    }
+    return urls
   }
 
   // 로그인한 계정의 치료사 프로필을 불러옴
@@ -165,6 +254,16 @@ export default function MyPage() {
     // 질문답변은 따로 읽음 (칸이 아직 없어도 나머지 화면은 그대로 열리게)
     const { data: faqRow } = await supabase.from('therapists').select('faq').eq('id', data.id).single()
     setFaq(cleanFaq(faqRow?.faq))
+
+    // 대표 사진도 따로 읽음 (칸이 아직 없으면 빈 목록)
+    const { data: photoRow, error: photoReadError } = await supabase.from('therapists').select('photo_urls').eq('id', data.id).single()
+    const saved = photoReadError ? [] : pickPhotos(photoRow?.photo_urls)
+    setSavedPhotos(saved)
+    setPhotoSlots(saved.map(url => ({ url, blob: null, preview: url })))
+
+    // 후기 평점 (내 프로필 머리에 표시)
+    const { data: rv } = await supabase.from('reviews').select('rating').eq('therapist_id', data.id)
+    setRating(rv && rv.length > 0 ? { avg: rv.reduce((s, r) => s + r.rating, 0) / rv.length, count: rv.length } : null)
     setStudioName(data.studio_name || '')
     setSelectedCerts(data.certifications || [])
     // 예전 가입자는 활동 형태가 비어 있을 수 있어, 방문 여부만 옮겨 담고 나머지는 직접 고르게 함
@@ -215,7 +314,7 @@ export default function MyPage() {
       if (session?.user) {
         const ok = await loadTherapist(session.user.id)
         if (!active) return
-        if (ok) setStep('edit')
+        if (ok) setStep('view')
         else setLoginError('이 계정에 연결된 전문가 프로필이 없습니다. 가입 신청을 먼저 진행해주세요.')
       }
       setChecking(false)
@@ -263,7 +362,7 @@ export default function MyPage() {
     }
 
     setLoggingIn(false)
-    setStep('edit')
+    setStep('view')
   }
 
   const handleLogout = async () => {
@@ -365,25 +464,62 @@ export default function MyPage() {
       )
     }
 
+    // 대표 사진 (따로 저장 — 칸이 없거나 실패해도 나머지 수정은 그대로 남게)
+    let photoMessage = ''
+    const photoUrls = await uploadPhotos(therapist.id)
+    if (photoUrls === null) {
+      photoMessage = ' 대표 사진은 올리지 못했어요. 잠시 후 다시 시도해 주세요.'
+    } else if (photoUrls.join('|') !== savedPhotos.join('|')) {
+      const { error: photoSaveError } = await supabase.from('therapists').update({ photo_urls: photoUrls }).eq('id', therapist.id)
+      if (photoSaveError) {
+        console.error('photo_urls update error:', photoSaveError)
+        photoMessage = ' 대표 사진은 저장하지 못했어요. (DB에 photo_urls 칸이 있는지 확인해 주세요)'
+      }
+    }
+
+    if (therapist.user_id) await loadTherapist(therapist.user_id)
     setSaving(false)
-    setStep('done')
+    setNotice('✅ 프로필을 저장했어요.' + photoMessage)
+    setStep('view')
+    window.scrollTo(0, 0)
   }
 
   return (
     <main className="max-w-md mx-auto min-h-screen bg-white pb-24">
       <div className="sticky top-0 bg-white border-b border-gray-100 px-5 py-4 flex items-center gap-3 z-10">
-        <button onClick={() => router.back()} className="text-gray-600 text-xl">←</button>
+        <button
+          onClick={() => (step === 'edit' ? (setStep('view'), window.scrollTo(0, 0)) : router.back())}
+          aria-label="뒤로"
+          className="text-gray-600 text-xl"
+        >
+          ←
+        </button>
         <h1 className="text-base font-bold text-gray-900 flex-1">
           {step === 'login' && '전문가 로그인'}
+          {step === 'view' && '내 프로필'}
           {step === 'edit' && '프로필 수정'}
-          {step === 'done' && '수정 완료'}
         </h1>
-        {step === 'edit' && (
+        {step !== 'login' && (
           <button onClick={handleLogout} className="text-xs text-gray-400">로그아웃</button>
         )}
       </div>
 
-      <div className="px-5 py-6">
+      {!checking && step === 'view' && therapist && (
+        <MyProfileView
+          therapist={{ ...therapist, intro, kakao_link: kakaoLink }}
+          photos={savedPhotos}
+          workTypes={workTypes}
+          bodyParts={selectedBodyParts}
+          purposes={selectedPurposes}
+          availability={availability}
+          faq={faq}
+          rating={rating}
+          notice={notice}
+          onEdit={() => { setNotice(''); setStep('edit'); window.scrollTo(0, 0) }}
+        />
+      )}
+
+      <div className={'px-5 py-6' + (step === 'view' ? ' hidden' : '')}>
         {checking && (
           <p className="text-center text-gray-400 py-20">확인 중...</p>
         )}
@@ -553,8 +689,51 @@ export default function MyPage() {
               </p>
             </div>
 
+            {/* 대표 사진 3장 — 검색 목록에 정사각형으로 보임 */}
             <div>
-              <label className="text-sm font-bold text-gray-700 block mb-3">프로필 사진</label>
+              <label className="text-sm font-bold text-gray-700 block mb-1">
+                대표 사진 <span className="text-xs text-gray-400 font-normal">({photoSlots.length}/{PHOTO_MAX} · 정사각형)</span>
+              </label>
+              <p className="text-xs text-gray-400 mb-3 leading-relaxed">
+                검색 목록에 3장이 나란히 보여요. 사진을 고르면 정사각형으로 위치·크기를 맞출 수 있어요. 운동 지도 모습·센터·도구 사진을 추천해요.
+              </p>
+              <div className="grid grid-cols-3 gap-2">
+                {photoSlots.map((slot, i) => (
+                  <div key={slot.preview} className="relative aspect-square rounded-xl overflow-hidden bg-gray-100 border border-gray-100">
+                    <img src={slot.preview} alt={`대표 사진 ${i + 1}`} className="w-full h-full object-cover" />
+                    {slot.source && (
+                      <button type="button" onClick={() => recropPhoto(i)}
+                        className="absolute right-1.5 bottom-1.5 px-2 py-1 rounded-md bg-white/90 text-[11px] font-bold text-gray-700">
+                        편집
+                      </button>
+                    )}
+                    {i === 0 ? (
+                      <span className="absolute left-1.5 top-1.5 px-1.5 py-0.5 rounded-md bg-black/60 text-white text-[11px] font-bold">대표</span>
+                    ) : (
+                      <button type="button" onClick={() => makeFirstPhoto(i)}
+                        className="absolute left-1.5 bottom-1.5 px-2 py-1 rounded-md bg-white/90 text-[11px] font-bold text-gray-700">
+                        맨 앞으로
+                      </button>
+                    )}
+                    <button type="button" onClick={() => removePhoto(i)} aria-label={`대표 사진 ${i + 1} 빼기`}
+                      className="absolute right-1 top-1 w-8 h-8 rounded-full bg-black/60 text-white text-base leading-none flex items-center justify-center">
+                      ×
+                    </button>
+                  </div>
+                ))}
+                {photoSlots.length < PHOTO_MAX && (
+                  <label className="aspect-square rounded-xl border-2 border-dashed border-gray-200 flex flex-col items-center justify-center text-gray-400 cursor-pointer hover:border-[#0A8A7B] hover:text-[#0A8A7B] transition">
+                    <span className="text-2xl leading-none">＋</span>
+                    <span className="text-xs font-semibold mt-1">사진 추가</span>
+                    <input type="file" accept="image/*" multiple onChange={handlePhotoAdd} className="hidden" />
+                  </label>
+                )}
+              </div>
+              {photoError && <p className="text-xs text-red-500 mt-2">{photoError}</p>}
+            </div>
+
+            <div>
+              <label className="text-sm font-bold text-gray-700 block mb-3">프로필 사진 <span className="text-xs text-gray-400 font-normal">(동그란 얼굴 사진)</span></label>
               <div className="flex items-center gap-4">
                 <div className="w-20 h-20 rounded-2xl overflow-hidden bg-gray-100 flex items-center justify-center shrink-0">
                   {profileImagePreview ? (
@@ -568,7 +747,7 @@ export default function MyPage() {
                     {profileImagePreview ? '사진 변경' : '사진 업로드'}
                     <input type="file" accept="image/*" onChange={handleImageChange} className="hidden" />
                   </label>
-                  <p className="text-xs text-gray-400 mt-1.5 text-center">JPG, PNG (최대 5MB)</p>
+                  <p className="text-xs text-gray-400 mt-1.5 text-center">고른 뒤 정사각형으로 맞춰요</p>
                 </div>
               </div>
             </div>
@@ -680,18 +859,19 @@ export default function MyPage() {
           </div>
         )}
 
-        {step === 'done' && (
-          <div className="text-center py-16">
-            <div className="text-6xl mb-6">✅</div>
-            <h2 className="text-xl font-extrabold text-gray-900 mb-3">수정 완료!</h2>
-            <p className="text-sm text-gray-500 leading-relaxed mb-8">프로필이 성공적으로 업데이트되었습니다.</p>
-            <button onClick={() => router.push('/')} className="px-8 py-3 bg-[#0A8A7B] text-white rounded-xl font-semibold">홈으로</button>
-          </div>
-        )}
       </div>
 
+      {step === 'view' && (
+        <div className="fixed bottom-0 left-0 right-0 max-w-md mx-auto px-5 py-4 bg-white border-t border-gray-100 z-20">
+          <button onClick={() => { setNotice(''); setStep('edit'); window.scrollTo(0, 0) }}
+            className="w-full py-4 rounded-2xl font-bold text-base bg-[#0A8A7B] text-white active:scale-[0.98] transition-all">
+            프로필 수정
+          </button>
+        </div>
+      )}
+
       {step === 'edit' && (
-        <div className="fixed bottom-0 left-0 right-0 max-w-md mx-auto px-5 py-4 bg-white border-t border-gray-100">
+        <div className="fixed bottom-0 left-0 right-0 max-w-md mx-auto px-5 py-4 bg-white border-t border-gray-100 z-20">
           {saveError && <p className="text-sm text-red-500 text-center mb-2">{saveError}</p>}
           {!saveError && (introBanned || faqBanned) && (
             <p className="text-xs text-red-500 text-center mb-2">쓸 수 없는 표현이 있어 저장할 수 없어요. 빨간 안내를 확인해 주세요.</p>
@@ -701,6 +881,17 @@ export default function MyPage() {
             {uploadingImage ? '사진 업로드 중...' : saving ? '저장 중...' : '저장하기'}
           </button>
         </div>
+      )}
+      {cropQueue.length > 0 && (
+        <SquareCropper
+          key={`${cropQueue[0].file.name}-${cropQueue.length}`}
+          file={cropQueue[0].file}
+          round={cropQueue[0].target === 'profile'}
+          title={cropQueue[0].target === 'profile' ? '프로필 사진 맞추기' : '대표 사진 맞추기'}
+          step={cropTotal > 1 ? `${cropTotal - cropQueue.length + 1}/${cropTotal}` : undefined}
+          onCancel={() => finishCrop(null)}
+          onDone={finishCrop}
+        />
       )}
     </main>
   )
