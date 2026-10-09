@@ -321,6 +321,12 @@ export default function WaitlistPage() {
           <p>· 이용 목적: 보필 오픈 소식 및 서비스 연결 안내 연락</p>
           <p>· 보관 기간: 오픈 안내 후 1년, 또는 철회 요청 시 즉시 삭제</p>
           <p>· 동의하지 않으실 수 있으며, 이 경우 사전 신청이 어려워요.</p>
+          <p>
+            ·{' '}
+            <a href="/privacy" target="_blank" rel="noopener noreferrer" className="underline">
+              개인정보처리방침 전문 보기
+            </a>
+          </p>
           <label className="flex items-center gap-3 mt-3 cursor-pointer">
             <input
               type="checkbox"

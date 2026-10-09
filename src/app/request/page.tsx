@@ -426,7 +426,10 @@ function RequestForm() {
             />
 
             <p className="text-[13px] text-gray-500 leading-relaxed">
-              동의하지 않으실 수 있지만, 이 경우 요청서를 보낼 수 없어요.
+              동의하지 않으실 수 있지만, 이 경우 요청서를 보낼 수 없어요.{' '}
+              <a href="/privacy" target="_blank" rel="noopener noreferrer" className="underline">
+                개인정보처리방침 보기
+              </a>
             </p>
           </div>
         </div>
