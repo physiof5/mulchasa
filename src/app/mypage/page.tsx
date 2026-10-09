@@ -3,23 +3,10 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
-
-const PURPOSE_OPTIONS = [
-  '도수치료', '운동치료', '통증치료',
-  '필라테스', '1:1 PT', '자세교정',
-  '산후 재활', '스포츠 재활', '수술 후 재활',
-]
-
-// 의료행위에 해당해 방문 제공이 불가한 항목 (센터 내방 전용)
-const CENTER_ONLY_PURPOSES = ['도수치료', '운동치료', '통증치료']
-
-const BODY_PART_OPTIONS = ['목', '어깨', '허리', '무릎', '손목', '발목', '골반']
-
-const SERVICE_MODES = [
-  { value: 'center', label: '🏢 센터 내방만', desc: '환자가 소속 병원·센터로 방문' },
-  { value: 'visit', label: '🏠 방문만', desc: '내가 환자의 집·시설로 방문' },
-  { value: 'both', label: '🔄 둘 다 가능', desc: '내방과 방문 모두 제공' },
-]
+import {
+  WORK_TYPES, PURPOSE_OPTIONS, BODY_PART_OPTIONS,
+  hasCenterWork, hasVisitWork, hasPlaceWork, deriveServiceMode,
+} from '@/lib/practitioner'
 
 const VISIT_RADIUS_OPTIONS = [3, 5, 10, 20, 30]
 
@@ -70,6 +57,7 @@ interface Therapist {
   profile_image_url: string | null
   certifications: string[] | null
   service_mode: string | null
+  work_types: string[] | null
   visit_radius_km: number | null
   user_id: string | null
   email: string | null
@@ -88,7 +76,6 @@ export default function MyPage() {
 
   const [kakaoLink, setKakaoLink] = useState('')
   const [intro, setIntro] = useState('')
-  const [hospitalName, setHospitalName] = useState('')
   const [studioName, setStudioName] = useState('')
   const [address, setAddress] = useState('')
   const [addressResult, setAddressResult] = useState<{ latitude: number; longitude: number; address: string } | null>(null)
@@ -99,13 +86,19 @@ export default function MyPage() {
   const [profileImage, setProfileImage] = useState<File | null>(null)
   const [profileImagePreview, setProfileImagePreview] = useState<string | null>(null)
   const [uploadingImage, setUploadingImage] = useState(false)
-  // 방문재활 · 일정
-  const [serviceMode, setServiceMode] = useState('center')
+  // 활동 형태 · 방문 범위 · 일정
+  const [workTypes, setWorkTypes] = useState<string[]>([])
   const [visitRadius, setVisitRadius] = useState<number>(10)
   const [availability, setAvailability] = useState<string[]>([])
 
-  const isVisitOnly = serviceMode === 'visit'
-  const canVisit = serviceMode === 'visit' || serviceMode === 'both'
+  const hasCenter = hasCenterWork(workTypes)
+  const canVisit = hasVisitWork(workTypes)
+  const canSave =
+    intro.trim().length >= 30 &&
+    hasPlaceWork(workTypes) &&
+    (!hasCenter || studioName.trim().length > 0)
+  const toggleWorkType = (value: string) =>
+    setWorkTypes(prev => (prev.includes(value) ? prev.filter(v => v !== value) : [...prev, value]))
 
   const toggleBodyPart = (part: string) => {
     setSelectedBodyParts(prev =>
@@ -114,7 +107,6 @@ export default function MyPage() {
   }
 
   const togglePurpose = (purpose: string) => {
-    if (isVisitOnly && CENTER_ONLY_PURPOSES.includes(purpose)) return
     setSelectedPurposes(prev =>
       prev.includes(purpose) ? prev.filter(p => p !== purpose) : [...prev, purpose]
     )
@@ -133,13 +125,6 @@ export default function MyPage() {
     )
   }
 
-  const handleServiceModeChange = (mode: string) => {
-    setServiceMode(mode)
-    if (mode === 'visit') {
-      setSelectedPurposes(prev => prev.filter(p => !CENTER_ONLY_PURPOSES.includes(p)))
-    }
-  }
-
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
@@ -151,21 +136,30 @@ export default function MyPage() {
 
   // 로그인한 계정의 치료사 프로필을 불러옴
   const loadTherapist = useCallback(async (userId: string) => {
-    const { data } = await supabase
+    // 휴대폰·면허번호·이메일은 공개 조회가 막혀 있어서, 본인 것만 전용 함수로 따로 가져옴
+    const { data: pub } = await supabase
       .from('therapists')
-      .select('*')
+      .select('id, name, years_experience, practitioner_type, hospital_name, studio_name, kakao_link, intro, verification_status, latitude, longitude, profile_image_url, certifications, service_mode, visit_radius_km, work_types, user_id')
       .eq('user_id', userId)
       .single()
 
-    if (!data) return false
+    if (!pub) return false
+
+    const { data: priv } = await supabase.rpc('get_my_therapist_private')
+    const mine = Array.isArray(priv) ? priv[0] : priv
+    const data = { ...pub, ...(mine ?? {}) }
 
     setTherapist(data)
     setKakaoLink(data.kakao_link || '')
     setIntro(data.intro || '')
-    setHospitalName(data.hospital_name || '')
     setStudioName(data.studio_name || '')
     setSelectedCerts(data.certifications || [])
-    setServiceMode(data.service_mode || 'center')
+    // 예전 가입자는 활동 형태가 비어 있을 수 있어, 방문 여부만 옮겨 담고 나머지는 직접 고르게 함
+    const savedTypes: string[] =
+      data.work_types && data.work_types.length > 0
+        ? data.work_types
+        : data.service_mode === 'visit' || data.service_mode === 'both' ? ['freelance_visit'] : []
+    setWorkTypes(savedTypes)
     if (data.visit_radius_km) setVisitRadius(data.visit_radius_km)
     if (data.profile_image_url) setProfileImagePreview(data.profile_image_url)
 
@@ -209,7 +203,7 @@ export default function MyPage() {
         const ok = await loadTherapist(session.user.id)
         if (!active) return
         if (ok) setStep('edit')
-        else setLoginError('이 계정에 연결된 치료사 프로필이 없습니다. 가입 신청을 먼저 진행해주세요.')
+        else setLoginError('이 계정에 연결된 전문가 프로필이 없습니다. 가입 신청을 먼저 진행해주세요.')
       }
       setChecking(false)
     }
@@ -249,7 +243,7 @@ export default function MyPage() {
 
     const ok = await loadTherapist(userId)
     if (!ok) {
-      setLoginError('이 계정에 연결된 치료사 프로필이 없습니다. 가입 신청을 먼저 진행해주세요.')
+      setLoginError('이 계정에 연결된 전문가 프로필이 없습니다. 가입 신청을 먼저 진행해주세요.')
       await supabase.auth.signOut()
       setLoggingIn(false)
       return
@@ -316,13 +310,13 @@ export default function MyPage() {
       .update({
         kakao_link: kakaoLink,
         intro,
-        hospital_name: hospitalName || null,
-        studio_name: studioName || null,
+        studio_name: hasCenter ? studioName.trim() || null : null,
         latitude: addressResult?.latitude ?? therapist.latitude,
         longitude: addressResult?.longitude ?? therapist.longitude,
         profile_image_url: profileImageUrl,
         certifications: selectedCerts,
-        service_mode: serviceMode,
+        work_types: workTypes,
+        service_mode: deriveServiceMode(workTypes),
         visit_radius_km: canVisit ? visitRadius : null,
       })
       .eq('id', therapist.id)
@@ -357,7 +351,7 @@ export default function MyPage() {
       <div className="sticky top-0 bg-white border-b border-gray-100 px-5 py-4 flex items-center gap-3 z-10">
         <button onClick={() => router.back()} className="text-gray-600 text-xl">←</button>
         <h1 className="text-base font-bold text-gray-900 flex-1">
-          {step === 'login' && '치료사 로그인'}
+          {step === 'login' && '전문가 로그인'}
           {step === 'edit' && '프로필 수정'}
           {step === 'done' && '수정 완료'}
         </h1>
@@ -374,7 +368,7 @@ export default function MyPage() {
         {!checking && step === 'login' && (
           <div className="space-y-5">
             <div className="bg-[#E8F6F4] rounded-2xl p-4 mb-6">
-              <p className="text-sm font-bold text-[#067A6C] mb-1">🔐 치료사 로그인</p>
+              <p className="text-sm font-bold text-[#067A6C] mb-1">🔐 전문가 로그인</p>
               <p className="text-xs text-gray-600 leading-relaxed">
                 가입 시 등록한 이메일과 비밀번호로 로그인해주세요.
               </p>
@@ -414,7 +408,7 @@ export default function MyPage() {
               onClick={() => router.push('/register')}
               className="w-full py-3 text-gray-400 font-semibold text-sm"
             >
-              아직 가입하지 않으셨나요? 치료사 가입 →
+              아직 가입하지 않으셨나요? 전문가 가입 →
             </button>
           </div>
         )}
@@ -423,30 +417,45 @@ export default function MyPage() {
           <div className="space-y-6">
             <div className="bg-gray-50 rounded-2xl p-4">
               <p className="text-sm font-bold text-gray-900">{therapist.name}님</p>
-              <p className="text-xs text-gray-400 mt-1">경력 {therapist.years_experience}년 · 면허번호 {therapist.license_number}</p>
+              <p className="text-xs text-gray-400 mt-1">경력 {therapist.years_experience}년{therapist.license_number ? ` · 면허번호 ${therapist.license_number}` : ''}</p>
             </div>
 
-            {/* 제공 방식 */}
+            {/* 활동 형태 */}
             <div>
-              <label className="text-sm font-bold text-gray-700 block mb-3">제공 방식</label>
-              <div className="space-y-2">
-                {SERVICE_MODES.map(mode => (
-                  <button key={mode.value} onClick={() => handleServiceModeChange(mode.value)}
-                    className={'w-full p-4 rounded-xl text-left transition-all ' + (serviceMode === mode.value ? 'bg-[#0A8A7B] text-white' : 'bg-gray-50 text-gray-700 border border-gray-100')}>
-                    <div className="font-bold mb-1">{mode.label}</div>
-                    <div className={`text-xs ${serviceMode === mode.value ? 'text-white/80' : 'text-gray-400'}`}>{mode.desc}</div>
-                  </button>
-                ))}
-              </div>
-              {canVisit && (
-                <div className="mt-3 p-3 rounded-xl bg-amber-50 border border-amber-100">
-                  <p className="text-xs text-amber-800 leading-relaxed">
-                    ⚠️ 방문 서비스는 <b>운동·교정 중심의 비의료 항목</b>만 제공할 수 있어요.
-                    도수치료·통증치료·운동치료는 센터 내방으로만 매칭됩니다.
-                  </p>
-                </div>
+              <label className="text-sm font-bold text-gray-700 block mb-1">활동 형태 <span className="text-xs text-gray-400 font-normal">(복수 선택)</span></label>
+              {!hasPlaceWork(workTypes) && (
+                <p className="text-xs text-red-400">운영·소속·방문 중 하나는 꼭 골라 주세요</p>
               )}
+              <div className="space-y-2 mt-3">
+                {WORK_TYPES.map(w => {
+                  const on = workTypes.includes(w.value)
+                  return (
+                    <button key={w.value} type="button" onClick={() => toggleWorkType(w.value)} aria-pressed={on}
+                      className={'w-full min-h-[64px] p-4 rounded-xl text-left flex items-center gap-3 border-2 transition-all ' +
+                        (on ? 'border-[#0A8A7B] bg-[#E8F6F4]' : 'border-gray-100 bg-gray-50')}>
+                      <span className="flex-1 min-w-0">
+                        <span className={'block font-bold ' + (on ? 'text-[#067A6C]' : 'text-gray-800')}>{w.label}</span>
+                        <span className="block text-xs text-gray-500 mt-0.5">{w.desc}</span>
+                      </span>
+                      <span className={'w-6 h-6 rounded-full flex items-center justify-center text-xs shrink-0 ' +
+                        (on ? 'bg-[#0A8A7B] text-white' : 'bg-white border border-gray-200 text-transparent')}>✓</span>
+                    </button>
+                  )
+                })}
+              </div>
+              <div className="mt-3 p-3 rounded-xl bg-amber-50 border border-amber-100">
+                <p className="text-xs text-amber-800 leading-relaxed">
+                  ⚠️ 이 서비스는 <b>운동 지도</b>예요. 방문·운동센터 모두 도수·기기 치료 같은 의료행위는 할 수 없어요.
+                </p>
+              </div>
             </div>
+
+            {hasCenter && (
+              <div>
+                <label className="text-sm font-bold text-gray-700 block mb-2">운동센터 이름 *</label>
+                <input type="text" value={studioName} onChange={(e) => setStudioName(e.target.value)} maxLength={40} placeholder="예: 바른걸음 운동센터" className="w-full p-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#0A8A7B]" />
+              </div>
+            )}
 
             {/* 방문 범위 */}
             {canVisit && (
@@ -454,13 +463,13 @@ export default function MyPage() {
                 <label className="text-sm font-bold text-gray-700 block mb-3">방문 가능 범위</label>
                 <div className="flex flex-wrap gap-2">
                   {VISIT_RADIUS_OPTIONS.map(km => (
-                    <button key={km} onClick={() => setVisitRadius(km)}
+                    <button key={km} type="button" onClick={() => setVisitRadius(km)}
                       className={'px-4 py-2.5 rounded-full text-sm font-semibold transition-all ' + (visitRadius === km ? 'bg-[#0A8A7B] text-white' : 'bg-gray-50 text-gray-500 border border-gray-100')}>
                       {km}km 이내
                     </button>
                   ))}
                 </div>
-                <p className="text-xs text-gray-400 mt-2">📍 아래 주소를 기준으로 이 거리 안의 환자에게 노출됩니다</p>
+                <p className="text-xs text-gray-400 mt-2">📍 아래 주소에서 이 거리 안에 사는 보호자에게 보여요</p>
               </div>
             )}
 
@@ -562,23 +571,7 @@ export default function MyPage() {
 
             <div>
               <label className="text-sm font-bold text-gray-700 block mb-2">
-                소속 병원·의원
-                {isVisitOnly && <span className="text-xs text-gray-400 font-normal"> (선택)</span>}
-              </label>
-              <input type="text" value={hospitalName} onChange={(e) => setHospitalName(e.target.value)} placeholder="예: 강남재활의학과" className="w-full p-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#0A8A7B]" />
-            </div>
-
-            <div>
-              <label className="text-sm font-bold text-gray-700 block mb-2">
-                스튜디오·센터명
-                {isVisitOnly && <span className="text-xs text-gray-400 font-normal"> (선택)</span>}
-              </label>
-              <input type="text" value={studioName} onChange={(e) => setStudioName(e.target.value)} placeholder="예: 바디밸런스 필라테스" className="w-full p-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#0A8A7B]" />
-            </div>
-
-            <div>
-              <label className="text-sm font-bold text-gray-700 block mb-2">
-                {canVisit ? '활동 기준 주소 변경' : '소속 주소 변경'}
+                {canVisit ? '활동 기준 주소 변경' : '운동센터 주소 변경'}
               </label>
               <div className="flex gap-2 mb-2">
                 <input type="text" value={address} onChange={(e) => setAddress(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAddressSearch()} placeholder="새 주소 입력" className="flex-1 p-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#0A8A7B]" />
@@ -595,7 +588,7 @@ export default function MyPage() {
             </div>
 
             <div>
-              <label className="text-sm font-bold text-gray-700 block mb-3">전문 부위 <span className="text-xs text-gray-400 font-normal">(복수 선택)</span></label>
+              <label className="text-sm font-bold text-gray-700 block mb-3">전문 부위 <span className="text-xs text-gray-400 font-normal">(선택 · 복수 선택)</span></label>
               <div className="flex flex-wrap gap-2">
                 {BODY_PART_OPTIONS.map(part => (
                   <button key={part} onClick={() => toggleBodyPart(part)}
@@ -607,29 +600,16 @@ export default function MyPage() {
             </div>
 
             <div>
-              <label className="text-sm font-bold text-gray-700 block mb-3">전문 분야 <span className="text-xs text-gray-400 font-normal">(복수 선택)</span></label>
+              <label className="text-sm font-bold text-gray-700 block mb-3">운동 지도 분야 <span className="text-xs text-gray-400 font-normal">(복수 선택)</span></label>
               <div className="flex flex-wrap gap-2">
-                {PURPOSE_OPTIONS.map(purpose => {
-                  const blocked = isVisitOnly && CENTER_ONLY_PURPOSES.includes(purpose)
-                  return (
-                    <button key={purpose} onClick={() => togglePurpose(purpose)} disabled={blocked}
-                      className={'px-4 py-2.5 rounded-full text-sm font-semibold transition-all ' +
-                        (blocked
-                          ? 'bg-gray-50 text-gray-300 border border-gray-100 line-through cursor-not-allowed'
-                          : selectedPurposes.includes(purpose)
-                            ? 'bg-[#0A8A7B] text-white'
-                            : 'bg-gray-50 text-gray-500 border border-gray-100')}>
-                      {purpose}
-                    </button>
-                  )
-                })}
+                {PURPOSE_OPTIONS.map(purpose => (
+                  <button key={purpose} type="button" onClick={() => togglePurpose(purpose)}
+                    className={'px-4 py-2.5 rounded-full text-sm font-semibold transition-all ' +
+                      (selectedPurposes.includes(purpose) ? 'bg-[#0A8A7B] text-white' : 'bg-gray-50 text-gray-500 border border-gray-100')}>
+                    {purpose}
+                  </button>
+                ))}
               </div>
-              {isVisitOnly && (
-                <p className="text-xs text-gray-400 mt-2 leading-relaxed">
-                  회색 항목은 의료행위에 해당해 방문으로 제공할 수 없어요.
-                  제공하시려면 제공 방식을 &lsquo;둘 다 가능&rsquo;으로 바꿔주세요.
-                </p>
-              )}
             </div>
 
             <div>
@@ -652,8 +632,8 @@ export default function MyPage() {
 
       {step === 'edit' && (
         <div className="fixed bottom-0 left-0 right-0 max-w-md mx-auto px-5 py-4 bg-white border-t border-gray-100">
-          <button onClick={handleSave} disabled={saving || uploadingImage || intro.trim().length < 30}
-            className={'w-full py-4 rounded-2xl font-bold text-base transition-all ' + (!saving && !uploadingImage && intro.trim().length >= 30 ? 'bg-[#0A8A7B] text-white active:scale-[0.98]' : 'bg-gray-100 text-gray-300 cursor-not-allowed')}>
+          <button onClick={handleSave} disabled={saving || uploadingImage || !canSave}
+            className={'w-full py-4 rounded-2xl font-bold text-base transition-all ' + (!saving && !uploadingImage && canSave ? 'bg-[#0A8A7B] text-white active:scale-[0.98]' : 'bg-gray-100 text-gray-300 cursor-not-allowed')}>
             {uploadingImage ? '사진 업로드 중...' : saving ? '저장 중...' : '저장하기'}
           </button>
         </div>

@@ -4,6 +4,7 @@ import { useEffect, useState, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import ConsultFormModal from '@/components/ConsultFormModal'
+import { practitionerLabel, workTypeLabels, summarizeAvailability, PRACTICE_RULES } from '@/lib/practitioner'
 
 interface Therapist {
   id: string
@@ -17,6 +18,9 @@ interface Therapist {
   verification_status: string
   profile_image_url: string | null
   certifications: string[] | null
+  service_mode: string | null
+  visit_radius_km: number | null
+  work_types: string[] | null
 }
 
 interface Tag {
@@ -41,6 +45,7 @@ export default function TherapistDetailPage() {
   const [therapist, setTherapist] = useState<Therapist | null>(null)
   const [tags, setTags] = useState<Tag[]>([])
   const [reviews, setReviews] = useState<Review[]>([])
+  const [availability, setAvailability] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
   const [showReviewForm, setShowReviewForm] = useState(false)
@@ -70,7 +75,7 @@ export default function TherapistDetailPage() {
       const { data: tData } = await supabase
         .from('therapists')
         // 공개 프로필에 필요한 칸만 (면허번호·이메일·휴대폰은 가져오지 않음)
-        .select('id, name, years_experience, practitioner_type, hospital_name, studio_name, kakao_link, intro, verification_status, profile_image_url, certifications')
+        .select('id, name, years_experience, practitioner_type, hospital_name, studio_name, kakao_link, intro, verification_status, profile_image_url, certifications, service_mode, visit_radius_km, work_types')
         .eq('id', id)
         .eq('verification_status', 'verified')
         .single()
@@ -91,6 +96,12 @@ export default function TherapistDetailPage() {
           .in('id', tagIds)
         setTags(tagData || [])
       }
+
+      const { data: avData } = await supabase
+        .from('therapist_availability')
+        .select('day_of_week, slot')
+        .eq('therapist_id', id)
+      setAvailability((avData || []).map(a => `${a.day_of_week}-${a.slot}`))
 
       await fetchReviews(id)
       setLoading(false)
@@ -162,12 +173,7 @@ export default function TherapistDetailPage() {
     ? (reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length).toFixed(1)
     : null
 
-  const getTypeInfo = (type: string) => {
-    if (type === 'hospital_pt') return { label: '병원 물리치료사', emoji: '🏥', color: 'bg-blue-50 text-blue-700' }
-    if (type === 'exercise_specialist') return { label: '운동 전문가', emoji: '🏋️', color: 'bg-orange-50 text-orange-700' }
-    if (type === 'both') return { label: '병원 + 운동 전문가', emoji: '🔄', color: 'bg-purple-50 text-purple-700' }
-    return { label: type, emoji: '👤', color: 'bg-gray-50 text-gray-700' }
-  }
+  const getTypeInfo = (type: string) => ({ label: practitionerLabel(type), color: 'bg-emerald-50 text-emerald-700' })
 
   const bodyParts = tags.filter(t => t.category === 'body_part')
   const purposes = tags.filter(t => t.category === 'purpose')
@@ -228,7 +234,7 @@ export default function TherapistDetailPage() {
       <main className="max-w-md mx-auto min-h-screen bg-white flex items-center justify-center px-5">
         <div className="text-center">
           <div className="text-5xl mb-4">😔</div>
-          <p className="text-base font-bold text-gray-700 mb-2">치료사를 찾을 수 없습니다</p>
+          <p className="text-base font-bold text-gray-700 mb-2">전문가를 찾을 수 없어요</p>
           <button onClick={() => router.push('/')} className="px-6 py-3 bg-[#0A8A7B] text-white rounded-xl font-semibold">홈으로</button>
         </div>
       </main>
@@ -237,6 +243,9 @@ export default function TherapistDetailPage() {
 
   const typeInfo = getTypeInfo(therapist.practitioner_type)
   const certList = therapist.certifications || []
+  const workLabels = workTypeLabels(therapist.work_types)
+  const availText = summarizeAvailability(availability)
+  const canVisit = therapist.service_mode === 'visit' || therapist.service_mode === 'both'
   const visibleCerts = showAllCerts ? certList : certList.slice(0, 5)
 
   return (
@@ -286,7 +295,7 @@ export default function TherapistDetailPage() {
               ✓ 면허 인증
             </span>
             <span className={'inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold ' + typeInfo.color}>
-              {typeInfo.emoji} {typeInfo.label}
+              {typeInfo.label}
             </span>
           </div>
 
@@ -309,7 +318,7 @@ export default function TherapistDetailPage() {
             {certList.length > 0 && (
               <>
                 <span className="text-white/40">·</span>
-                <span>검증 자격 {certList.length}</span>
+                <span>보유 자격 {certList.length}</span>
               </>
             )}
             <span className="text-white/40">·</span>
@@ -348,28 +357,30 @@ export default function TherapistDetailPage() {
 
       {/* ===== 정보 (소속 + 자기소개) ===== */}
       <section id="intro" className="bg-white px-5 py-5 mb-2 scroll-mt-28">
-        {(therapist.hospital_name || therapist.studio_name) && (
-          <div className="mb-5">
-            <h3 className="text-sm font-bold text-gray-900 mb-3">📍 소속</h3>
-            <div className="space-y-2">
-              {therapist.hospital_name && (
-                <div className="flex items-center gap-2">
-                  <span className="text-sm">🏥</span>
-                  <span className="text-sm text-gray-700">{therapist.hospital_name}</span>
-                </div>
-              )}
-              {therapist.studio_name && (
-                <div className="flex items-center gap-2">
-                  <span className="text-sm">🏋️</span>
-                  <span className="text-sm text-gray-700">{therapist.studio_name}</span>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
+        {/* 한눈에 보는 정보 */}
+        <div className="mb-5 space-y-2.5">
+          <InfoRow icon="🛡️" text="물리치료사 면허 확인 완료" />
+          {workLabels.length > 0 && <InfoRow icon="🧭" text={workLabels.join(' · ')} />}
+          {(therapist.studio_name || therapist.hospital_name) && (
+            <InfoRow icon="🏢" text={(therapist.studio_name || therapist.hospital_name) as string} />
+          )}
+          {canVisit && therapist.visit_radius_km != null && (
+            <InfoRow icon="🏠" text={`집으로 방문 · 활동 지역에서 ${therapist.visit_radius_km}km 이내`} />
+          )}
+          {availText && <InfoRow icon="🕐" text={availText} />}
+          <InfoRow icon="💬" text="카카오톡 오픈채팅으로 상담 (전화번호 비공개)" />
+        </div>
 
         <h3 className="text-sm font-bold text-gray-900 mb-3">💬 자기소개</h3>
         <p className="text-[15px] text-gray-700 leading-relaxed whitespace-pre-wrap">{therapist.intro}</p>
+
+        <div className="mt-5 rounded-xl bg-gray-50 p-4">
+          <p className="text-[13px] font-bold text-gray-700 mb-1">이 전문가의 활동 원칙</p>
+          {PRACTICE_RULES.map(rule => (
+            <p key={rule} className="text-[13px] text-gray-500 leading-relaxed">· {rule}</p>
+          ))}
+          <p className="text-[12px] text-gray-400 mt-2 leading-relaxed">진단이나 치료가 필요하면 병원·의원 진료를 먼저 받아 주세요.</p>
+        </div>
       </section>
 
       {/* ===== 전문분야 ===== */}
@@ -401,7 +412,8 @@ export default function TherapistDetailPage() {
       {/* ===== 자격 (리스트형) ===== */}
       {certList.length > 0 && (
         <section id="certs" className="bg-white px-5 py-5 mb-2 scroll-mt-28">
-          <h3 className="text-sm font-bold text-gray-900 mb-4">🏅 검증 자격 {certList.length}</h3>
+          <h3 className="text-sm font-bold text-gray-900 mb-4">🏅 보유 자격 {certList.length}</h3>
+          <p className="text-xs text-gray-400 -mt-2 mb-3">전문가가 직접 입력한 자격이에요. 물리치료사 면허는 운영팀이 확인했어요.</p>
           <div className="divide-y divide-gray-100">
             {visibleCerts.map(cert => (
               <div key={cert} className="flex items-center gap-3 py-3 first:pt-0">
@@ -477,7 +489,7 @@ export default function TherapistDetailPage() {
               <textarea
                 value={content}
                 onChange={(e) => setContent(e.target.value)}
-                placeholder="치료 경험을 자유롭게 작성해주세요"
+                placeholder="운동 지도를 받은 경험을 자유롭게 적어 주세요"
                 rows={4}
                 className="w-full p-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#0A8A7B] resize-none"
               />
@@ -585,5 +597,15 @@ export default function TherapistDetailPage() {
         purpose={purposes.length > 0 ? purposes[0].label : null}
       />
     </main>
+  )
+}
+
+// 프로필 '한눈에 보는 정보' 한 줄
+function InfoRow({ icon, text }: { icon: string; text: string }) {
+  return (
+    <div className="flex items-start gap-2.5">
+      <span className="text-[15px] leading-6 w-5 text-center shrink-0">{icon}</span>
+      <span className="text-[15px] text-gray-700 leading-6">{text}</span>
+    </div>
   )
 }

@@ -5,6 +5,7 @@ import { useSearchParams, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import Script from 'next/script'
 import ConsultFormModal from '@/components/ConsultFormModal'
+import { practitionerLabel, summarizeAvailability } from '@/lib/practitioner'
 
 interface Therapist {
   id: string
@@ -38,40 +39,13 @@ declare global {
 const PURPOSE_GROUPS: Record<string, string[]> = {
   '필라테스': ['필라테스', '1:1 PT'],
   '1:1 PT': ['1:1 PT', '필라테스'],
-  '수술 후 재활': ['수술 후 재활', '스포츠 재활'],
-  '스포츠 재활': ['스포츠 재활', '수술 후 재활'],
+  '수술 후 재활 운동': ['수술 후 재활 운동', '스포츠 재활 운동'],
+  '스포츠 재활 운동': ['스포츠 재활 운동', '수술 후 재활 운동'],
+  '신경계 재활 운동': ['신경계 재활 운동', '일상생활 동작 회복'],
+  '일상생활 동작 회복': ['일상생활 동작 회복', '신경계 재활 운동', '보행·균형(낙상 예방)'],
+  '보행·균형(낙상 예방)': ['보행·균형(낙상 예방)', '일상생활 동작 회복'],
 }
 
-const DAY_LABELS = ['일', '월', '화', '수', '목', '금', '토']
-const SLOT_LABELS: Record<string, string> = {
-  morning: '오전',
-  afternoon: '오후',
-  evening: '저녁',
-}
-
-// "1-morning" 형태의 목록을 "평일 오전 · 토 오후" 처럼 짧게 요약
-function summarizeAvailability(slots: string[]): string {
-  if (!slots || slots.length === 0) return ''
-  const bySlot: Record<string, number[]> = {}
-  slots.forEach(s => {
-    const [day, slot] = s.split('-')
-    if (!bySlot[slot]) bySlot[slot] = []
-    bySlot[slot].push(Number(day))
-  })
-  const parts: string[] = []
-  ;['morning', 'afternoon', 'evening'].forEach(slot => {
-    const days = bySlot[slot]
-    if (!days || days.length === 0) return
-    const weekdays = days.filter(d => d >= 1 && d <= 5)
-    const weekend = days.filter(d => d === 0 || d === 6)
-    const chunk: string[] = []
-    if (weekdays.length === 5) chunk.push('평일')
-    else if (weekdays.length > 0) chunk.push(weekdays.sort().map(d => DAY_LABELS[d]).join('·'))
-    if (weekend.length > 0) chunk.push(weekend.sort().map(d => DAY_LABELS[d]).join('·'))
-    if (chunk.length > 0) parts.push(`${chunk.join('·')} ${SLOT_LABELS[slot]}`)
-  })
-  return parts.join(' · ')
-}
 
 // 설문(symptom)의 기간 id → 상담 폼(ConsultFormModal)의 기간 value 매핑
 const DURATION_TO_FORM: Record<string, string> = {
@@ -99,10 +73,7 @@ function formatDistance(km: number): string {
 }
 
 function typeLabel(type: string): string {
-  if (type === 'hospital_pt') return '🏥 병원 물리치료사'
-  if (type === 'exercise_specialist') return '🏋️ 움직임 전문가'
-  if (type === 'both') return '🔄 병원+운동 전문가'
-  return '👤 전문가'
+  return practitionerLabel(type)
 }
 
 const EXPERIENCE_FILTERS = [
@@ -112,10 +83,11 @@ const EXPERIENCE_FILTERS = [
   { label: '10년+', min: 10 },
 ]
 
+// 활동 형태 필터 (service_mode 기준이라 예전 가입자도 함께 걸러짐)
 const TYPE_FILTERS = [
   { label: '전체', value: 'all' },
-  { label: '🏥 병원 물리치료사', value: 'hospital_pt' },
-  { label: '🏋️ 움직임 전문가', value: 'exercise_specialist' },
+  { label: '🏢 운동센터', value: 'center' },
+  { label: '🏠 방문', value: 'visit' },
 ]
 
 // 프로필 이미지 또는 플레이스홀더 (와이드 배너용)
@@ -589,7 +561,10 @@ function SearchContent() {
   useEffect(() => {
     let result = [...therapists]
     if (expFilter > 0) result = result.filter(t => t.years_experience >= expFilter)
-    if (typeFilter !== 'all') result = result.filter(t => t.practitioner_type === typeFilter)
+    if (typeFilter !== 'all') result = result.filter(t => {
+      const sm = t.service_mode || 'center'
+      return sm === typeFilter || sm === 'both'
+    })
     setFiltered(result)
   }, [therapists, expFilter, typeFilter])
 
@@ -616,7 +591,7 @@ function SearchContent() {
   if (loading) {
     return (
       <div className="max-w-md mx-auto min-h-screen bg-white flex items-center justify-center">
-        <p className="text-gray-400">치료사를 찾고 있습니다...</p>
+        <p className="text-gray-400">전문가를 찾고 있어요...</p>
       </div>
     )
   }
@@ -632,9 +607,9 @@ function SearchContent() {
               ? `내 주변 전문가 ${filtered.length}명`
               : isVisitMode
                 ? `방문 가능 전문가 ${filtered.length}명`
-                : `${bodyPart} 전문가 ${filtered.length}명`}
+                : `${bodyPart || purpose} 전문가 ${filtered.length}명`}
           </h1>
-          {(purpose || isVisitMode) && (
+          {(isVisitMode || (bodyPart && purpose)) && (
             <p className="text-sm text-gray-400">
               {isVisitMode && '🏠 집으로 방문'}
               {isVisitMode && purpose && ' · '}
@@ -690,7 +665,7 @@ function SearchContent() {
             </div>
           </div>
           <div className="mb-3">
-            <p className="text-xs font-bold text-gray-500 mb-2">활동 유형</p>
+            <p className="text-xs font-bold text-gray-500 mb-2">활동 형태</p>
             <div className="flex gap-2 flex-wrap">
               {TYPE_FILTERS.map(f => (
                 <button key={f.value} onClick={() => setTypeFilter(f.value)}
@@ -712,7 +687,7 @@ function SearchContent() {
         <div className="relative" style={{ height: 'calc(100vh - 130px)', minHeight: '500px' }}>
           {filtered.length === 0 ? (
             <div className="flex items-center justify-center h-full bg-gray-50">
-              <p className="text-gray-400 text-sm">표시할 치료사가 없습니다</p>
+              <p className="text-gray-400 text-sm">표시할 전문가가 없어요</p>
             </div>
           ) : (
             <>

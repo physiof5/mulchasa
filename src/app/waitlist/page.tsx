@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import RegionPicker from '@/components/RegionPicker'
+import { WORK_TYPES, hasCenterWork, hasVisitWork, hasPlaceWork } from '@/lib/practitioner'
 
 type Role = 'guardian' | 'pt'
 
@@ -9,6 +10,7 @@ const NEEDS: Record<Role, string[]> = {
   // 보호자·전문가 항목은 같은 순서로 짝을 맞춰 둠 (나중에 매칭에 사용)
   guardian: [
     '운동 지도 (걷기·근력)',
+    '뇌졸중·파킨슨 등 신경계 질환 후 운동',
     '넘어지지 않게 돕는 운동 (낙상 예방)',
     '집 안 위험한 곳 점검 (문턱·화장실·손잡이)',
     '보호자가 배우는 돌봄 동작 (옮기기·자세 바꾸기)',
@@ -18,6 +20,7 @@ const NEEDS: Record<Role, string[]> = {
   ],
   pt: [
     '운동 지도',
+    '신경계 재활 운동',
     '낙상 예방 운동',
     '집 안 안전 점검',
     '보호자 돌봄 동작 교육',
@@ -31,11 +34,7 @@ const PLACES = [
   { value: 'center', label: '가까운 운동센터로 갈게요' },
   { value: 'both', label: '둘 다 괜찮아요' },
 ]
-// 전문가: 활동 방식 (여러 개 선택)
-const MODES = [
-  { value: 'home', label: '집으로 찾아가요 (방문)' },
-  { value: 'center', label: '운영하는 운동센터에서 지도해요' },
-]
+// 전문가: 활동 형태는 가입 화면과 같은 선택지 (lib/practitioner.ts)
 
 // 전문가 전용 질문
 const TRANSPORTS = [
@@ -58,8 +57,8 @@ const COPY: Record<Role, {
     notePh: '궁금한 점을 편하게 적어 주세요. 질병명 같은 건강 정보는 적지 않으셔도 돼요.',
   },
   pt: {
-    title: '방문 운동 지도·운동센터\n전문가를 모집해요',
-    desc: '직접 찾아가시는 분도, 운동센터를 운영하시는 분도 등록할 수 있어요. 사전 등록하신 분께 오픈 소식과 첫 매칭 기회를 가장 먼저 드려요.',
+    title: '물리치료사 면허로\n운동 지도 활동을 시작해요',
+    desc: '운동센터를 운영하거나 소속된 분, 프리랜서로 방문하실 분, 육아·본업과 함께 짧게 활동하실 분 모두 등록할 수 있어요. 사전 등록하신 분께 오픈 소식과 첫 매칭 기회를 가장 먼저 드려요.',
     regionLabel: '활동 가능한 지역',
     regionPh: '예: 서울 강남구, 서초구',
     needLabel: '가능한 서비스 (여러 개 선택)',
@@ -87,7 +86,7 @@ export default function WaitlistPage() {
   const [website, setWebsite] = useState('')
   // 전문가 전용
   const [transport, setTransport] = useState<'' | 'car' | 'transit'>('')
-  const [modes, setModes] = useState<string[]>([])
+  const [workTypes, setWorkTypes] = useState<string[]>([])
   const [centerName, setCenterName] = useState('')
   // 보호자 전용
   const [place, setPlace] = useState('')
@@ -106,7 +105,7 @@ export default function WaitlistPage() {
     setRegions([])
     setTransport('')
     setTimeSlots([])
-    setModes([])
+    setWorkTypes([])
     setCenterName('')
     setPlace('')
     setError(null)
@@ -115,6 +114,8 @@ export default function WaitlistPage() {
   const toggleNeed = (n: string) =>
     setNeeds((prev) => (prev.includes(n) ? prev.filter((x) => x !== n) : [...prev, n]))
 
+  const hasCenter = hasCenterWork(workTypes)
+  const canVisit = hasVisitWork(workTypes)
   const phoneDigits = phone.replace(/[^0-9]/g, '')
   const canSubmit =
     name.trim().length > 0 &&
@@ -124,9 +125,9 @@ export default function WaitlistPage() {
     needs.length > 0 &&
     (role === 'guardian'
       ? place !== ''
-      : modes.length > 0 &&
+      : hasPlaceWork(workTypes) &&
         timeSlots.length > 0 &&
-        (!modes.includes('home') || transport !== '')) &&
+        (!canVisit || transport !== '')) &&
     agreed &&
     !submitting
 
@@ -145,9 +146,9 @@ export default function WaitlistPage() {
           regions,
           needs,
           place: role === 'guardian' ? place : null,
-          modes: role === 'pt' ? modes : [],
-          centerName: role === 'pt' && modes.includes('center') ? centerName.trim() : null,
-          transport: role === 'pt' && modes.includes('home') ? transport : null,
+          workTypes: role === 'pt' ? workTypes : [],
+          centerName: role === 'pt' && hasCenter ? centerName.trim() : null,
+          transport: role === 'pt' && canVisit ? transport : null,
           timeSlots: role === 'pt' ? timeSlots : [],
           note: note.trim() || null,
           source,
@@ -179,7 +180,7 @@ export default function WaitlistPage() {
           신청이 완료됐어요
         </h1>
         <p className="text-[17px] text-gray-600 mt-3 leading-relaxed">
-          보필이 문을 열면 남겨주신 연락처로<br />가장 먼저 알려드릴게요.
+          서비스가 문을 열면 남겨주신 연락처로<br />가장 먼저 알려드릴게요.
         </p>
         <a
           href="https://blog.naver.com/spacex_2025"
@@ -278,25 +279,31 @@ export default function WaitlistPage() {
         )}
 
         {role === 'pt' && (
-          <Field label="활동 방식 (여러 개 선택)">
+          <Field label="어떤 형태로 활동하세요? (여러 개 선택)">
             <div className="flex flex-col gap-2">
-              {MODES.map((m) => {
-                const on = modes.includes(m.value)
+              {WORK_TYPES.map((w) => {
+                const on = workTypes.includes(w.value)
                 return (
                   <button
-                    key={m.value}
+                    key={w.value}
                     onClick={() =>
-                      setModes((prev) => (prev.includes(m.value) ? prev.filter((x) => x !== m.value) : [...prev, m.value]))
+                      setWorkTypes((prev) => (prev.includes(w.value) ? prev.filter((x) => x !== w.value) : [...prev, w.value]))
                     }
-                    className="w-full text-left p-4 rounded-xl border-2 text-[17px] font-medium transition-all"
-                    style={on ? { borderColor: GREEN, background: '#E8F6F4', color: '#0F6E56' } : { borderColor: '#E5E7EB', background: 'white', color: '#374151' }}
+                    className="w-full text-left p-4 rounded-xl border-2 transition-all"
+                    style={on ? { borderColor: GREEN, background: '#E8F6F4' } : { borderColor: '#E5E7EB', background: 'white' }}
                   >
-                    {on ? '✓ ' : ''}{m.label}
+                    <span className="block text-[17px] font-bold" style={{ color: on ? '#0F6E56' : '#374151' }}>
+                      {on ? '✓ ' : ''}{w.label}
+                    </span>
+                    <span className="block text-[14px] text-gray-500 mt-0.5">{w.desc}</span>
                   </button>
                 )
               })}
             </div>
-            {modes.includes('center') && (
+            {workTypes.length > 0 && !hasPlaceWork(workTypes) && (
+              <p className="text-[14px] text-red-500 mt-2">운영·소속·방문 중 하나는 꼭 골라 주세요</p>
+            )}
+            {hasCenter && (
               <input
                 value={centerName}
                 onChange={(e) => setCenterName(e.target.value)}
@@ -332,7 +339,7 @@ export default function WaitlistPage() {
 
         {role === 'pt' && (
           <>
-            {modes.includes('home') && (
+            {canVisit && (
             <Field label="방문할 때 이동 수단은?">
               <div className="grid grid-cols-2 gap-2">
                 {TRANSPORTS.map((t) => {
@@ -396,8 +403,8 @@ export default function WaitlistPage() {
         {/* 개인정보 동의 */}
         <div className="rounded-xl bg-gray-50 p-4 text-[14px] text-gray-600 leading-relaxed">
           <p className="font-bold text-gray-800 mb-1">개인정보 수집·이용 동의 (필수)</p>
-          <p>· 수집 항목: 이름, 연락처, 지역, 선택한 항목{role === 'pt' ? ', 활동 방식, 운동센터 이름, 이동 수단, 활동 시간대' : ', 받고 싶은 장소'}, 남기신 메모</p>
-          <p>· 이용 목적: 보필 오픈 소식 및 서비스 연결 안내 연락</p>
+          <p>· 수집 항목: 이름, 연락처, 지역, 선택한 항목{role === 'pt' ? ', 활동 형태, 운동센터 이름, 이동 수단, 활동 시간대' : ', 받고 싶은 장소'}, 남기신 메모</p>
+          <p>· 이용 목적: 서비스 오픈 소식 및 서비스 연결 안내 연락</p>
           <p>· 보관 기간: 오픈 안내 후 1년, 또는 철회 요청 시 즉시 삭제</p>
           <p>· 동의하지 않으실 수 있으며, 이 경우 사전 신청이 어려워요.</p>
           <p>

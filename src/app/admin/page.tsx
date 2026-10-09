@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { supabase } from '@/lib/supabase'
+import { practitionerLabel, workTypeLabels } from '@/lib/practitioner'
 
 interface Therapist {
   id: string
@@ -16,6 +16,19 @@ interface Therapist {
   intro: string
   verification_status: string
   created_at: string
+  work_types?: string[] | null
+}
+
+// 관리자 목록은 서버(관리자 쿠키 확인)에서만 가져옴
+async function loadList(status: string): Promise<Therapist[]> {
+  try {
+    const res = await fetch(`/api/admin-action?status=${status}`, { cache: 'no-store' })
+    if (!res.ok) return []
+    const json = await res.json()
+    return json.therapists ?? []
+  } catch {
+    return []
+  }
 }
 
 export default function AdminPage() {
@@ -69,16 +82,14 @@ export default function AdminPage() {
     if (!authenticated) return
     async function fetchTherapists() {
       setLoading(true)
-      const { data } = await supabase.from('therapists').select('*').eq('verification_status', tab).order('created_at', { ascending: false })
-      setTherapists(data || [])
+      setTherapists(await loadList(tab))
       setLoading(false)
     }
     fetchTherapists()
   }, [authenticated, tab])
 
   const refresh = async () => {
-    const { data } = await supabase.from('therapists').select('*').eq('verification_status', tab).order('created_at', { ascending: false })
-    setTherapists(data || [])
+    setTherapists(await loadList(tab))
   }
 
   // 모든 관리자 쓰기는 서버 라우트(service_role + 쿠키 인증)를 통해서만 수행
@@ -97,7 +108,7 @@ export default function AdminPage() {
   }
 
   const handleApprove = async (id: string, name: string) => {
-    if (!confirm(name + ' 치료사의 면허 인증을 승인하시겠습니까?\n승인 시 해당 치료사에게 안내 문자가 발송됩니다.')) return
+    if (!confirm(name + ' 전문가의 면허 확인을 승인하시겠습니까?\n승인 시 해당 전문가에게 안내 문자가 발송됩니다.')) return
     setActingId(id)
     try {
       const res = await callAdminAction(id, 'approve')
@@ -110,7 +121,7 @@ export default function AdminPage() {
       if (result.smsSent) {
         alert('승인 완료 · 안내 문자 발송됨: ' + name)
       } else if (result.alreadyVerified) {
-        alert('이미 승인된 치료사입니다: ' + name)
+        alert('이미 승인된 전문가입니다: ' + name)
       } else {
         alert('승인은 완료됐지만 문자 발송에 실패했습니다: ' + name + '\n사유: ' + (result.smsError || '알 수 없음'))
       }
@@ -123,7 +134,7 @@ export default function AdminPage() {
   }
 
   const handleReject = async (id: string, name: string) => {
-    if (!confirm(name + ' 치료사의 신청을 거부하시겠습니까?')) return
+    if (!confirm(name + ' 전문가의 신청을 거부하시겠습니까?')) return
     setActingId(id)
     try {
       const res = await callAdminAction(id, 'reject')
@@ -137,7 +148,7 @@ export default function AdminPage() {
   }
 
   const handleRevert = async (id: string, name: string) => {
-    if (!confirm(name + ' 치료사를 대기 중으로 되돌리시겠습니까?')) return
+    if (!confirm(name + ' 전문가를 대기 중으로 되돌리시겠습니까?')) return
     setActingId(id)
     try {
       const res = await callAdminAction(id, 'revert')
@@ -150,11 +161,7 @@ export default function AdminPage() {
     }
   }
 
-  const getTypeLabel = (type: string) => {
-    if (type === 'hospital_pt') return '🏥 병원 물리치료사'
-    if (type === 'exercise_specialist') return '🏋️ 움직임 전문가'
-    return type
-  }
+  const getTypeLabel = (type: string) => practitionerLabel(type)
 
   if (checking) {
     return <main className="max-w-md mx-auto min-h-screen bg-white" />
@@ -167,7 +174,7 @@ export default function AdminPage() {
           <div className="text-center mb-8">
             <div className="text-5xl mb-3">🔐</div>
             <h1 className="text-2xl font-extrabold text-gray-900">관리자 페이지</h1>
-            <p className="text-sm text-gray-400 mt-2">물찾사 운영자 전용</p>
+            <p className="text-sm text-gray-400 mt-2">운영자 전용</p>
           </div>
           <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleLogin()} placeholder="비밀번호 입력" className="w-full p-4 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#0A8A7B] mb-3" />
           <button onClick={handleLogin} disabled={loggingIn} className="w-full py-4 bg-[#0A8A7B] text-white rounded-xl font-bold disabled:opacity-60">{loggingIn ? '확인 중...' : '로그인'}</button>
@@ -180,8 +187,8 @@ export default function AdminPage() {
     <main className="max-w-3xl mx-auto min-h-screen bg-white">
       <div className="sticky top-0 bg-white border-b border-gray-100 px-5 py-4 flex items-center justify-between z-10">
         <div>
-          <h1 className="text-lg font-extrabold text-gray-900">물찾사 관리자</h1>
-          <p className="text-xs text-gray-400">치료사 면허 인증 관리</p>
+          <h1 className="text-lg font-extrabold text-gray-900">관리자</h1>
+          <p className="text-xs text-gray-400">전문가 면허 확인 관리</p>
         </div>
         <button onClick={handleLogout} className="text-xs text-gray-400">로그아웃</button>
       </div>
@@ -224,8 +231,12 @@ export default function AdminPage() {
                     <span className="text-gray-700">{t.years_experience}년</span>
                   </div>
                   <div className="flex">
-                    <span className="text-gray-400 w-24 shrink-0">소속</span>
-                    <span className="text-gray-700">{t.hospital_name || t.studio_name || '-'}</span>
+                    <span className="text-gray-400 w-24 shrink-0">활동 형태</span>
+                    <span className="text-gray-700">{workTypeLabels(t.work_types).join(' · ') || '-'}</span>
+                  </div>
+                  <div className="flex">
+                    <span className="text-gray-400 w-24 shrink-0">운동센터</span>
+                    <span className="text-gray-700">{t.studio_name || t.hospital_name || '-'}</span>
                   </div>
                   <div className="flex">
                     <span className="text-gray-400 w-24 shrink-0">연락처</span>

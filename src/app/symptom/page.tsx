@@ -43,24 +43,22 @@ const NATURES = [
 
 // ── 5. 장소 ────────────────────────────────────────────────
 const PLACES = [
-  { id: 'center', label: '센터·병원으로 방문할게요', emoji: '🏢', desc: '직접 찾아가서 받는 방식' },
+  { id: 'center', label: '가까운 운동센터로 갈게요', emoji: '🏢', desc: '직접 찾아가서 받는 방식' },
   { id: 'visit', label: '집으로 와주셨으면 해요', emoji: '🏠', desc: '거동이 불편하거나 외출이 어려울 때' },
 ]
 
-// ── 6. 목표 → 치료사 태그(purpose)로 변환 ──────────────────
+// ── 6. 목표 → 전문가 태그(purpose)로 변환 ──────────────────
 // tag 값은 가입/검색에서 쓰는 태그 문자열과 정확히 일치해야 함
 const GOALS = [
-  { id: 'pain', label: '지금 아픈 걸 빨리 줄이고 싶어요', tag: '통증치료' },
-  { id: 'manual', label: '손으로 풀어주는 치료를 받고 싶어요', tag: '도수치료' },
-  { id: 'exercise', label: '운동으로 회복하고 싶어요', tag: '운동치료' },
-  { id: 'postop', label: '수술·부상 후 제대로 재활하고 싶어요', tag: '수술 후 재활' },
-  { id: 'postnatal', label: '출산 후 몸을 회복하고 싶어요', tag: '산후 재활' },
-  { id: 'posture', label: '자세·체형을 바로잡고 싶어요', tag: '자세교정' },
+  { id: 'neuro', label: '뇌졸중·파킨슨 등으로 일상생활이 불편해요', tag: '신경계 재활 운동' },
+  { id: 'daily', label: '혼자 일어나고 걷는 힘을 되찾고 싶어요', tag: '일상생활 동작 회복' },
+  { id: 'fall', label: '넘어지지 않게 걷기·균형을 키우고 싶어요', tag: '보행·균형(낙상 예방)' },
+  { id: 'exercise', label: '불편한 곳을 운동으로 관리하고 싶어요', tag: '근골격 재활 운동' },
+  { id: 'postop', label: '수술·부상 후 재활 운동을 하고 싶어요', tag: '수술 후 재활 운동' },
+  { id: 'postnatal', label: '출산 후 몸을 회복하고 싶어요', tag: '산후 재활 운동' },
+  { id: 'posture', label: '자세·체형을 바로잡고 싶어요', tag: '자세교정 운동' },
   { id: 'fitness', label: '꾸준히 운동하며 관리하고 싶어요', tag: '필라테스' },
 ]
-
-// 의료행위에 해당해 방문으로 제공할 수 없는 태그
-const CENTER_ONLY_TAGS = ['도수치료', '운동치료', '통증치료']
 
 type StepKey = 'subject' | 'part' | 'duration' | 'nature' | 'intensity' | 'place' | 'goal' | 'result'
 
@@ -293,8 +291,8 @@ export default function SymptomPage() {
               ))}
             </div>
             <p className="text-xs text-gray-400 mt-4 leading-relaxed">
-              방문 서비스는 운동·재활 중심으로 제공돼요. 도수치료처럼 의료기관에서
-              받아야 하는 치료는 센터 방문으로 안내해드립니다.
+              집으로 방문해도, 운동센터에서도 운동 지도를 해 드려요. 도수치료 같은
+              치료가 필요하면 병원·의원 진료를 먼저 받아 주세요.
             </p>
           </Step>
         )}
@@ -303,39 +301,19 @@ export default function SymptomPage() {
         {current === 'goal' && (
           <Step
             title={'어떤 도움을\n받고 싶으세요?'}
-            sub={isVisit ? '방문으로 받을 수 있는 항목을 보여드릴게요' : '원하시는 방향에 맞춰 전문가를 찾아드려요'}
+            sub="원하시는 방향에 맞춰 전문가를 찾아드려요"
           >
             <div className="space-y-2.5">
-              {GOALS.map((g) => {
-                const blocked = isVisit && CENTER_ONLY_TAGS.includes(g.tag)
-                return (
-                  <button
-                    key={g.id}
-                    onClick={() => { if (!blocked) goNext({ goal: g.id }) }}
-                    disabled={blocked}
-                    className={
-                      'w-full flex items-center gap-3 px-4 py-4 rounded-2xl border text-left transition-all ' +
-                      (blocked
-                        ? 'bg-gray-50 border-gray-100 cursor-not-allowed'
-                        : 'bg-gray-50 border-gray-100 active:scale-[0.98]')
-                    }
-                  >
-                    <span className={'text-[15px] font-semibold ' + (blocked ? 'text-gray-300' : 'text-gray-700')}>
-                      {g.label}
-                    </span>
-                    {blocked && (
-                      <span className="ml-auto text-[11px] text-gray-400 shrink-0">센터 방문만</span>
-                    )}
-                  </button>
-                )
-              })}
+              {GOALS.map((g) => (
+                <button
+                  key={g.id}
+                  onClick={() => goNext({ goal: g.id })}
+                  className="w-full flex items-center gap-3 px-4 py-4 rounded-2xl border text-left transition-all bg-gray-50 border-gray-100 active:scale-[0.98]"
+                >
+                  <span className="text-[15px] font-semibold text-gray-700">{g.label}</span>
+                </button>
+              ))}
             </div>
-            {isVisit && (
-              <p className="text-xs text-gray-400 mt-4 leading-relaxed">
-                회색 항목은 의료기관에서 받아야 하는 치료예요. 필요하시면 이전 단계에서
-                &lsquo;센터·병원으로 방문&rsquo;을 선택해주세요.
-              </p>
-            )}
           </Step>
         )}
 
@@ -378,7 +356,7 @@ export default function SymptomPage() {
               {!noPain && <SummaryRow label="통증 강도" value={`${answers.intensity} / 10`} />}
               <SummaryRow
                 label="희망 방식"
-                value={isVisit ? '🏠 집으로 방문' : '🏢 센터·병원 방문'}
+                value={isVisit ? '🏠 집으로 방문' : '🏢 운동센터 방문'}
               />
               <SummaryRow label="원하는 도움" value={goalObj?.label ?? '-'} />
             </div>

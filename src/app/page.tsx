@@ -13,6 +13,17 @@ interface Review {
   therapist_name: string | null
 }
 
+const GREEN = '#0A8A7B'
+
+// 보호자가 '병명'이 아니라 '지금 상황'으로 고르는 입구 → 전문가 운동 지도 분야(tags.label)로 연결
+const SITUATIONS = [
+  { label: '혼자 일어나기·\n걷기가 힘들어요', tag: '일상생활 동작 회복', emoji: '🚶' },
+  { label: '자꾸 넘어질까\n걱정돼요', tag: '보행·균형(낙상 예방)', emoji: '🧓' },
+  { label: '수술 후 회복\n운동이 필요해요', tag: '수술 후 재활 운동', emoji: '🩹' },
+  { label: '허리·무릎이\n불편해요', tag: '근골격 재활 운동', emoji: '🦵' },
+]
+const NEURO_TAG = '신경계 재활 운동'
+
 
 export default function Home() {
   const router = useRouter()
@@ -111,6 +122,22 @@ export default function Home() {
     router.push(qs ? `/symptom?${qs}` : '/symptom')
   }
 
+  // 상황 타일 → 해당 운동 지도 분야 전문가 목록
+  const goPurpose = (tag: string) => {
+    const params = new URLSearchParams()
+    params.set('purpose', tag)
+    if (userLat) params.set('lat', userLat.toString())
+    if (userLng) params.set('lng', userLng.toString())
+    router.push(`/search?${params.toString()}`)
+  }
+
+  // 제도·지원금: 홈의 블로그 글 영역으로 이동, 글을 못 불러왔으면 블로그를 바로 열기
+  const scrollToInfo = () => {
+    const el = document.getElementById('info')
+    if (el && el.offsetHeight > 0) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    else window.open('https://blog.naver.com/spacex_2025', '_blank', 'noopener,noreferrer')
+  }
+
   const goMap = () => {
     const params = new URLSearchParams()
     params.set('view', 'map')
@@ -137,7 +164,7 @@ export default function Home() {
             가까운 전문가를 찾아보세요
           </h1>
           <p className="text-sm text-gray-400 mt-3 leading-relaxed">
-            면허 검증된 물리치료사·운동전문가를<br />
+            물리치료사 면허를 가진 운동 전문가를<br />
             내 주변에서 찾아드려요
           </p>
         </div>
@@ -163,8 +190,8 @@ export default function Home() {
         </div>
         <div className="mt-auto px-5 pb-10 text-center">
           <p className="text-xs text-gray-300 leading-relaxed">
-            물찾사의 모든 전문가는<br />
-            물리치료사 면허를 보유하고 있습니다 🛡️
+            모든 전문가는<br />
+            물리치료사 면허를 확인했어요 🛡️
           </p>
         </div>
       </main>
@@ -173,61 +200,93 @@ export default function Home() {
 
   return (
     <main className="max-w-md mx-auto min-h-screen bg-gray-50">
-      <div className="bg-gray-50 px-5 pt-5 pb-2 flex items-center justify-between">
-        <button className="flex items-center gap-1 text-lg font-bold text-gray-900">
-          {locName}
+      {/* 상단: 위치 + 내 정보 */}
+      <div className="px-5 pt-4 flex items-center justify-between">
+        <button onClick={() => setStage('onboarding')} className="flex items-center gap-1 text-[19px] font-bold text-gray-900 min-h-[48px]">
+          {userLat !== null ? locName : '위치 설정하기'}
           <span className="text-gray-400 text-base">▾</span>
         </button>
-        <button onClick={goSymptom} className="text-gray-700" aria-label="검색">
+        <button onClick={() => router.push('/mypage')} aria-label="내 정보" className="w-12 h-12 flex items-center justify-center text-gray-700">
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+            <circle cx="12" cy="8" r="3.5" stroke="currentColor" strokeWidth="2" />
+            <path d="M5 20c0-3.5 3-6 7-6s7 2.5 7 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+          </svg>
+        </button>
+      </div>
+
+      {/* 검색처럼 보이는 입구 → 맞춤 찾기 */}
+      <div className="px-5 pt-1">
+        <button onClick={goSymptom} className="w-full flex items-center gap-2.5 px-4 min-h-[52px] rounded-2xl bg-white border border-gray-200 text-left active:scale-[0.99] transition-all">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" className="text-gray-400 shrink-0">
             <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="2" />
             <path d="m20 20-3-3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
           </svg>
+          <span className="text-[16px] text-gray-400">어떤 운동 도움이 필요하세요?</span>
         </button>
+        <p className="mt-3 text-[15px] font-semibold" style={{ color: '#0F6E56' }}>
+          🛡️ 물리치료사 면허를 가진 운동 전문가만 만나요
+        </p>
       </div>
 
-      <div className="mx-5 my-2 rounded-2xl p-5 relative overflow-hidden" style={{ background: '#0A8A7B' }}>
-        <div className="text-xs mb-1" style={{ color: '#9FE1CB' }}>면허 검증된 전문가만</div>
-        <div className="text-[17px] font-bold text-white leading-snug">
-          믿을 수 있는 물리치료사,<br />물찾사에서 만나세요
-        </div>
-        <svg className="absolute right-4 top-1/2 -translate-y-1/2 opacity-20" width="56" height="56" viewBox="0 0 24 24" fill="none">
-          <path d="M12 2 4 5v6c0 5 3.5 8.5 8 11 4.5-2.5 8-6 8-11V5l-8-3Z" fill="white" />
-          <path d="m9 12 2 2 4-4" stroke="#0A8A7B" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-      </div>
-
-      <div className="px-5 pt-2 grid grid-cols-2 gap-2.5">
-        <button onClick={goSymptom} className="row-span-2 bg-white border border-gray-100 rounded-2xl p-4 min-h-[150px] relative text-left active:scale-[0.98] transition-all">
-          <span className="inline-block text-[11px] px-2 py-0.5 rounded-md mb-2" style={{ background: '#E1F5EE', color: '#0F6E56' }}>부위·목적 맞춤</span>
-          <div className="text-[17px] font-bold text-gray-900">증상으로 찾기</div>
-          <div className="text-xs text-gray-400 mt-0.5">치료사·운동전문가</div>
-          <svg className="absolute right-3 bottom-3" width="46" height="46" viewBox="0 0 24 24" fill="none" style={{ color: '#5DCAA5' }}>
+      {/* 두 갈래 입구: 정보 / 운동 지도 */}
+      <div className="px-5 pt-4 grid grid-cols-2 gap-3">
+        <button onClick={scrollToInfo} className="bg-white border border-gray-100 rounded-2xl p-4 min-h-[150px] text-left flex flex-col active:scale-[0.98] transition-all">
+          <svg width="30" height="30" viewBox="0 0 24 24" fill="none" style={{ color: GREEN }}>
+            <path d="M7 3h7l5 5v12a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+            <path d="M14 3v5h5M9 13h6M9 17h4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          <span className="mt-auto block text-[18px] font-bold text-gray-900 leading-snug">제도·지원금<br />알아보기</span>
+          <span className="block text-[13px] text-gray-500 mt-1">장기요양등급·복지용구</span>
+        </button>
+        <button onClick={goSymptom} className="rounded-2xl p-4 min-h-[150px] text-left flex flex-col text-white active:scale-[0.98] transition-all" style={{ background: GREEN }}>
+          <svg width="30" height="30" viewBox="0 0 24 24" fill="none" className="text-white">
             <circle cx="12" cy="5" r="2.5" fill="currentColor" />
             <path d="M12 8v6m0 0-3 5m3-5 3 5M7 11l5-1 5 1" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
-        </button>
-
-        <button onClick={goMap} className="bg-white border border-gray-100 rounded-2xl p-4 relative text-left active:scale-[0.98] transition-all">
-          <span className="inline-block text-[11px] px-2 py-0.5 rounded-md mb-1.5" style={{ background: '#FAECE7', color: '#993C1D' }}>내 주변</span>
-          <div className="text-[15px] font-bold text-gray-900">지도로 찾기</div>
-          <svg className="absolute right-2.5 bottom-2.5" width="30" height="30" viewBox="0 0 24 24" fill="none" style={{ color: '#F0997B' }}>
-            <path d="M12 21s7-5.5 7-11a7 7 0 1 0-14 0c0 5.5 7 11 7 11Z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
-            <circle cx="12" cy="10" r="2.5" stroke="currentColor" strokeWidth="2" />
-          </svg>
-        </button>
-
-        <button onClick={goSymptom} className="bg-white border border-gray-100 rounded-2xl p-4 relative text-left active:scale-[0.98] transition-all">
-          <span className="inline-block text-[11px] px-2 py-0.5 rounded-md mb-1.5" style={{ background: '#E6F1FB', color: '#185FA5' }}>병원·센터</span>
-          <div className="text-[15px] font-bold text-gray-900">센터 찾기</div>
-          <svg className="absolute right-2.5 bottom-2.5" width="30" height="30" viewBox="0 0 24 24" fill="none" style={{ color: '#85B7EB' }}>
-            <path d="M4 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16M16 21h4V11a1 1 0 0 0-1-1h-3" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
-            <path d="M9 7v4m-2-2h4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-          </svg>
+          <span className="mt-auto block text-[18px] font-bold leading-snug">부모님 운동 지도<br />부탁하기</span>
+          <span className="block text-[13px] mt-1" style={{ color: '#CFEDE7' }}>집으로 방문 · 운동센터</span>
         </button>
       </div>
 
-      <BlogFeed />
+      {/* 상황으로 찾기 */}
+      <section className="px-5 pt-7">
+        <h2 className="text-[18px] font-bold text-gray-900">부모님이 이런 상황이라면</h2>
+        <p className="text-[14px] text-gray-500 mt-0.5 mb-3">운동을 지도해 줄 물리치료사를 찾아 드려요</p>
+
+        <button
+          onClick={() => goPurpose(NEURO_TAG)}
+          className="w-full flex items-center gap-3 p-4 mb-2.5 rounded-2xl border-2 text-left active:scale-[0.98] transition-all"
+          style={{ borderColor: '#9FD8CE', background: '#F1FAF8' }}
+        >
+          <span className="text-[26px] shrink-0">🧠</span>
+          <span className="flex-1 min-w-0">
+            <span className="block text-[16px] font-bold text-gray-900 leading-snug">뇌졸중·파킨슨 등으로<br />일상생활이 불편해요</span>
+            <span className="block text-[13px] mt-0.5" style={{ color: '#0F6E56' }}>신경계 재활 운동 전문가 보기</span>
+          </span>
+          <span className="text-gray-400 text-xl shrink-0">›</span>
+        </button>
+
+        <div className="grid grid-cols-2 gap-2.5">
+          {SITUATIONS.map((s) => (
+            <button
+              key={s.tag}
+              onClick={() => goPurpose(s.tag)}
+              className="bg-white border border-gray-100 rounded-2xl p-4 min-h-[96px] text-left flex flex-col gap-1.5 active:scale-[0.98] transition-all"
+            >
+              <span className="text-[22px]">{s.emoji}</span>
+              <span className="text-[15px] font-semibold text-gray-800 leading-snug whitespace-pre-line">{s.label}</span>
+            </button>
+          ))}
+        </div>
+
+        <button onClick={goMap} className="w-full mt-3 py-3 text-[15px] font-semibold text-gray-500 min-h-[48px]">
+          지도로 내 주변 전문가 보기 →
+        </button>
+      </section>
+
+      <div id="info" className="scroll-mt-4">
+        <BlogFeed />
+      </div>
 
       {reviews.length > 0 && (
         <div className="px-5 pb-4">
@@ -253,13 +312,13 @@ export default function Home() {
       )}
 
       <div className="mx-5 mb-8 p-5 rounded-2xl border" style={{ background: 'linear-gradient(to bottom right, #E8F6F4, #ffffff)', borderColor: 'rgba(10,138,123,0.1)' }}>
-        <p className="text-sm font-bold text-gray-900 mb-1">물리치료사이신가요? 👋</p>
-        <p className="text-xs text-gray-500 leading-relaxed mb-4">
-          물찾사에 가입하고 환자와 직접 연결되세요.<br />
-          면허 인증 후 24시간 내 활성화됩니다.
+        <p className="text-[16px] font-bold text-gray-900 mb-1">물리치료사이신가요? 👋</p>
+        <p className="text-[14px] text-gray-500 leading-relaxed mb-4">
+          운동센터 운영·소속, 프리랜서 방문, 육아와 함께하는 파트타임까지.<br />
+          면허 확인 후 보호자와 직접 연결돼요.
         </p>
-        <button onClick={() => router.push('/register')} className="w-full py-3 bg-white border rounded-xl font-bold text-sm transition-all" style={{ borderColor: '#0A8A7B', color: '#0A8A7B' }}>
-          치료사로 가입하기 →
+        <button onClick={() => router.push('/register')} className="w-full py-3.5 bg-white border rounded-xl font-bold text-[15px] transition-all" style={{ borderColor: GREEN, color: GREEN }}>
+          전문가로 가입하기 →
         </button>
       </div>
 

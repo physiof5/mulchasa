@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { createHmac } from 'crypto'
 import { isValidRegion } from '@/lib/regions'
+import { WORK_TYPE_VALUES, hasCenterWork, hasVisitWork, hasPlaceWork, deriveServiceMode } from '@/lib/practitioner'
 
 export const runtime = 'nodejs'
 
@@ -57,25 +58,25 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: '운동 지도를 받고 싶은 곳을 골라 주세요.' }, { status: 400 })
     }
 
-    // 전문가: 활동 방식(방문/센터) + 이동 수단 + 활동 시간대
-    const modes: string[] = Array.isArray(body.modes)
-      ? ['home', 'center'].filter((m) => body.modes.includes(m))
+    // 전문가: 활동 형태(운동센터 운영·소속 / 방문 / 파트타임) + 이동 수단 + 활동 시간대
+    const workTypes: string[] = Array.isArray(body.workTypes)
+      ? WORK_TYPE_VALUES.filter((w) => body.workTypes.includes(w))
       : []
+    const visits = hasVisitWork(workTypes)
     const transport = body.transport === 'car' || body.transport === 'transit' ? body.transport : null
     const timeSlots: string[] = Array.isArray(body.timeSlots)
       ? TIME_SLOTS.filter((s) => body.timeSlots.includes(s))
       : []
-    const centerName = modes.includes('center') ? clean(body.centerName, 40) || null : null
+    const centerName = hasCenterWork(workTypes) ? clean(body.centerName, 40) || null : null
     if (role === 'pt') {
-      if (modes.length === 0 || timeSlots.length === 0) {
-        return NextResponse.json({ error: '활동 방식과 시간대를 골라 주세요.' }, { status: 400 })
+      if (!hasPlaceWork(workTypes) || timeSlots.length === 0) {
+        return NextResponse.json({ error: '활동 형태와 시간대를 골라 주세요.' }, { status: 400 })
       }
-      if (modes.includes('home') && !transport) {
+      if (visits && !transport) {
         return NextResponse.json({ error: '방문할 때 이동 수단을 골라 주세요.' }, { status: 400 })
       }
     }
-    const serviceMode =
-      role === 'guardian' ? place : modes.length === 2 ? 'both' : modes[0]
+    const serviceMode = role === 'guardian' ? place : deriveServiceMode(workTypes)
 
     if (role === 'guardian' && regions.length !== 1) {
       return NextResponse.json({ error: '사시는 지역을 하나 골라 주세요.' }, { status: 400 })
@@ -122,8 +123,9 @@ export async function POST(req: Request) {
       agreed_privacy: true,
       service_mode: serviceMode,
       center_name: role === 'pt' ? centerName : null,
-      has_car: role === 'pt' && modes.includes('home') ? transport === 'car' : null,
+      has_car: role === 'pt' && visits ? transport === 'car' : null,
       time_slots: role === 'pt' ? timeSlots : [],
+      work_types: role === 'pt' ? workTypes : null,
       ip_hash: ipHash,
     })
     if (error) {

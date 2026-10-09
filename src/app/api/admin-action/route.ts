@@ -5,6 +5,28 @@ import { SolapiMessageService } from 'solapi'
 // 솔라피 SDK는 Node 런타임 필요
 export const runtime = 'nodejs'
  
+// 관리자 목록 조회: 상태별 치료사 (휴대폰·면허번호 포함 → 서버에서만)
+export async function GET(req: NextRequest) {
+  const token = req.cookies.get('mulchasa_admin')?.value
+  if (!token || token !== process.env.ADMIN_PASSWORD) {
+    return NextResponse.json({ error: '인증 실패' }, { status: 401 })
+  }
+  const status = req.nextUrl.searchParams.get('status') ?? 'pending'
+  if (!['pending', 'verified', 'rejected'].includes(status)) {
+    return NextResponse.json({ error: '잘못된 상태값' }, { status: 400 })
+  }
+  const { data, error } = await supabaseAdmin
+    .from('therapists')
+    .select('*')
+    .eq('verification_status', status)
+    .order('created_at', { ascending: false })
+  if (error) {
+    console.error('admin list error:', error)
+    return NextResponse.json({ error: '목록을 불러오지 못했어요' }, { status: 500 })
+  }
+  return NextResponse.json({ therapists: data ?? [] })
+}
+
 export async function POST(req: NextRequest) {
   // 인증: httpOnly 쿠키로만 확인. (비밀번호를 본문으로 받지 않음 → 노출 경로 차단)
   const token = req.cookies.get('mulchasa_admin')?.value
