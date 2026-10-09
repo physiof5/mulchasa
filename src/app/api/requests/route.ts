@@ -31,9 +31,30 @@ async function countRecent(column: 'ip_hash' | 'contact', value: string, sinceMs
   }
   return count ?? 0
 }
+
+// 맞춤 찾기에서 온 상황 값: 정해진 선택지만 저장 (자유 입력 X, 장기요양등급은 받지 않음)
+const SITUATION_VALUES = {
+  who: ['mother', 'father', 'other'],
+  age: ['65plus', 'under65'],
+  mobility: ['independent', 'aid', 'assist', 'bed'],
+  fell: ['yes', 'no', 'unknown'],
+  conditions: ['stroke', 'parkinson', 'dementia', 'surgery', 'joint', 'frail'],
+}
+
+function cleanSituation(v: unknown) {
+  if (!v || typeof v !== 'object') return null
+  const s = v as Record<string, unknown>
+  const pick = (key: 'who' | 'age' | 'mobility' | 'fell') =>
+    typeof s[key] === 'string' && SITUATION_VALUES[key].includes(s[key] as string) ? (s[key] as string) : null
+  const conditions = Array.isArray(s.conditions)
+    ? Array.from(new Set(s.conditions.filter((c): c is string => typeof c === 'string' && SITUATION_VALUES.conditions.includes(c))))
+    : []
+  const result = { who: pick('who'), age: pick('age'), mobility: pick('mobility'), fell: pick('fell'), conditions }
+  return result.who || result.age || result.mobility || result.fell || conditions.length > 0 ? result : null
+}
  
 // 방문 운동 지도 요청서 등록
-// 환자는 계정이 없으므로, 등록 시 access_token을 발급해 본인 확인에 사용합니다.
+// 보호자는 계정이 없으므로, 등록 시 access_token을 발급해 본인 확인에 사용합니다.
 export async function POST(req: Request) {
   try {
     const body = await req.json()
@@ -126,7 +147,8 @@ export async function POST(req: Request) {
         duration: duration || null,
         nature: nature || null,
         intensity: typeof intensity === 'number' ? intensity : null,
-        purpose: purpose || null,
+        purpose: purpose ? String(purpose).slice(0, 40) : null,
+        situation: cleanSituation(body.situation),
         note: note ? String(note).slice(0, 500) : null,
         latitude,
         longitude,

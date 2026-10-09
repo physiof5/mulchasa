@@ -1,9 +1,11 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import BlogFeed from '@/components/BlogFeed'
+import BottomNav from '@/components/BottomNav'
 
 interface Review {
   id: string
@@ -114,13 +116,8 @@ export default function Home() {
     )
   }
 
-  const goSymptom = () => {
-    const params = new URLSearchParams()
-    if (userLat) params.set('lat', userLat.toString())
-    if (userLng) params.set('lng', userLng.toString())
-    const qs = params.toString()
-    router.push(qs ? `/symptom?${qs}` : '/symptom')
-  }
+  // 부모님 상황 맞춤 찾기 (위치는 /find가 기기에서 직접 읽음)
+  const goFind = () => router.push('/find')
 
   // 상황 타일 → 해당 운동 지도 분야 전문가 목록
   const goPurpose = (tag: string) => {
@@ -216,7 +213,7 @@ export default function Home() {
 
       {/* 검색처럼 보이는 입구 → 맞춤 찾기 */}
       <div className="px-5 pt-1">
-        <button onClick={goSymptom} className="w-full flex items-center gap-2.5 px-4 min-h-[52px] rounded-2xl bg-white border border-gray-200 text-left active:scale-[0.99] transition-all">
+        <button onClick={goFind} className="w-full flex items-center gap-2.5 px-4 min-h-[52px] rounded-2xl bg-white border border-gray-200 text-left active:scale-[0.99] transition-all">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" className="text-gray-400 shrink-0">
             <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="2" />
             <path d="m20 20-3-3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
@@ -238,7 +235,7 @@ export default function Home() {
           <span className="mt-auto block text-[18px] font-bold text-gray-900 leading-snug">제도·지원금<br />알아보기</span>
           <span className="block text-[13px] text-gray-500 mt-1">장기요양등급·복지용구</span>
         </button>
-        <button onClick={goSymptom} className="rounded-2xl p-4 min-h-[150px] text-left flex flex-col text-white active:scale-[0.98] transition-all" style={{ background: GREEN }}>
+        <button onClick={goFind} className="rounded-2xl p-4 min-h-[150px] text-left flex flex-col text-white active:scale-[0.98] transition-all" style={{ background: GREEN }}>
           <svg width="30" height="30" viewBox="0 0 24 24" fill="none" className="text-white">
             <circle cx="12" cy="5" r="2.5" fill="currentColor" />
             <path d="M12 8v6m0 0-3 5m3-5 3 5M7 11l5-1 5 1" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
@@ -284,7 +281,23 @@ export default function Home() {
         </button>
       </section>
 
-      <div id="info" className="scroll-mt-4">
+      {/* 1분 자가진단 — 블로그·유튜브에서 들어온 보호자가 바로 해 볼 수 있게 */}
+      <section className="px-5 pt-5">
+        <h2 className="text-[18px] font-bold text-gray-900">1분 자가진단</h2>
+        <p className="text-[14px] text-gray-500 mt-0.5 mb-3">설치 없이 바로, 결과는 이 기기에만 남아요</p>
+        <div className="grid grid-cols-2 gap-2.5">
+          <Link href="/check/fall" className="bg-white border border-gray-100 rounded-2xl p-4 min-h-[112px] flex flex-col gap-1.5 active:scale-[0.98] transition-all">
+            <span className="text-[24px]" aria-hidden="true">🧓</span>
+            <span className="text-[16px] font-bold text-gray-900 leading-snug">넘어질 위험<br />체크</span>
+          </Link>
+          <Link href="/check/ltc" className="bg-white border border-gray-100 rounded-2xl p-4 min-h-[112px] flex flex-col gap-1.5 active:scale-[0.98] transition-all">
+            <span className="text-[24px]" aria-hidden="true">📋</span>
+            <span className="text-[16px] font-bold text-gray-900 leading-snug">장기요양등급<br />예상</span>
+          </Link>
+        </div>
+      </section>
+
+      <div id="info" className="scroll-mt-4 pt-2">
         <BlogFeed />
       </div>
 
@@ -322,30 +335,8 @@ export default function Home() {
         </button>
       </div>
 
-      <nav className="max-w-md mx-auto fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 flex py-2 px-0">
-        <TabItem active label="홈" />
-        <TabItem label="내 주변" onClick={goMap} />
-        <TabItem label="채팅" />
-        <TabItem label="찜" />
-        <TabItem label="내 정보" onClick={() => router.push('/mypage')} />
-      </nav>
-      <div className="h-16" />
+      <BottomNav />
     </main>
   )
 }
 
-function TabItem({ label, active, onClick }: { label: string; active?: boolean; onClick?: () => void }) {
-  const icons: Record<string, React.ReactNode> = {
-    '홈': <path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1v-9Z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />,
-    '내 주변': <><circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2" /><path d="m15 9-4 1.5L9.5 15 14 13l1-4Z" fill="currentColor" /></>,
-    '채팅': <path d="M4 5h16v11H9l-4 3v-3H4V5Z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />,
-    '찜': <path d="M12 20s-7-4.5-7-9.5A3.5 3.5 0 0 1 12 7a3.5 3.5 0 0 1 7 3.5C19 15.5 12 20 12 20Z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />,
-    '내 정보': <><circle cx="12" cy="8" r="3.5" stroke="currentColor" strokeWidth="2" /><path d="M5 20c0-3.5 3-6 7-6s7 2.5 7 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></>,
-  }
-  return (
-    <button onClick={onClick} className="flex-1 flex flex-col items-center gap-0.5" style={{ color: active ? '#0A8A7B' : '#9CA3AF' }}>
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none">{icons[label]}</svg>
-      <span className="text-[11px]">{label}</span>
-    </button>
-  )
-}

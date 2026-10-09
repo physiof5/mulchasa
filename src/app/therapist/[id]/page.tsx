@@ -4,7 +4,7 @@ import { useEffect, useState, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import ConsultFormModal from '@/components/ConsultFormModal'
-import { practitionerLabel, workTypeLabels, summarizeAvailability, PRACTICE_RULES } from '@/lib/practitioner'
+import { practitionerLabel, workTypeLabels, summarizeAvailability, PRACTICE_RULES, FAQ_QUESTIONS, cleanFaq } from '@/lib/practitioner'
 
 interface Therapist {
   id: string
@@ -46,6 +46,7 @@ export default function TherapistDetailPage() {
   const [tags, setTags] = useState<Tag[]>([])
   const [reviews, setReviews] = useState<Review[]>([])
   const [availability, setAvailability] = useState<string[]>([])
+  const [faq, setFaq] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
   const [showReviewForm, setShowReviewForm] = useState(false)
@@ -102,6 +103,10 @@ export default function TherapistDetailPage() {
         .select('day_of_week, slot')
         .eq('therapist_id', id)
       setAvailability((avData || []).map(a => `${a.day_of_week}-${a.slot}`))
+
+      // 질문답변은 따로 읽음 (칸이 없거나 막혀 있어도 프로필은 그대로 보이게)
+      const { data: faqRow } = await supabase.from('therapists').select('faq').eq('id', id).single()
+      setFaq(cleanFaq(faqRow?.faq))
 
       await fetchReviews(id)
       setLoading(false)
@@ -179,9 +184,13 @@ export default function TherapistDetailPage() {
   const purposes = tags.filter(t => t.category === 'purpose')
 
   // 데이터에 따라 탭 구성을 동적으로 만든다
+  // 답을 적은 질문만 보여 줌
+  const faqItems = FAQ_QUESTIONS.filter(f => faq[f.key]).map(f => ({ q: f.q, a: faq[f.key] }))
+
   const tabList = [
     { id: 'intro', label: '정보', show: true },
     { id: 'specialty', label: '전문분야', show: bodyParts.length > 0 || purposes.length > 0 },
+    { id: 'faq', label: '질문답변', show: faqItems.length > 0 },
     { id: 'certs', label: '자격', show: !!(therapist?.certifications && therapist.certifications.length > 0) },
     { id: 'reviews', label: '후기', show: true },
   ].filter(t => t.show)
@@ -207,7 +216,7 @@ export default function TherapistDetailPage() {
     })
     return () => observer.disconnect()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, therapist, tags.length])
+  }, [loading, therapist, tags.length, faqItems.length])
 
   const scrollToSection = (id: string) => {
     const el = document.getElementById(id)
@@ -409,6 +418,21 @@ export default function TherapistDetailPage() {
         </section>
       )}
 
+      {/* ===== 질문답변 (숨고 참고) ===== */}
+      {faqItems.length > 0 && (
+        <section id="faq" className="bg-white px-5 py-5 mb-2 scroll-mt-28">
+          <h3 className="text-sm font-bold text-gray-900 mb-4">🙋 질문답변</h3>
+          <div className="space-y-5">
+            {faqItems.map(item => (
+              <div key={item.q}>
+                <p className="text-[16px] font-bold text-gray-900 leading-snug">Q. {item.q}</p>
+                <p className="text-[15px] text-gray-600 mt-1.5 leading-relaxed whitespace-pre-wrap">{item.a}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
       {/* ===== 자격 (리스트형) ===== */}
       {certList.length > 0 && (
         <section id="certs" className="bg-white px-5 py-5 mb-2 scroll-mt-28">
@@ -593,7 +617,6 @@ export default function TherapistDetailPage() {
         onClose={() => setShowModal(false)}
         therapistName={therapist.name}
         kakaoLink={therapist.kakao_link}
-        bodyPart={bodyParts.length > 0 ? bodyParts[0].label : null}
         purpose={purposes.length > 0 ? purposes[0].label : null}
       />
     </main>

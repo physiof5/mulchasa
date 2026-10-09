@@ -4,8 +4,9 @@ import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import {
-  WORK_TYPES, PURPOSE_OPTIONS, BODY_PART_OPTIONS,
+  WORK_TYPES, PURPOSE_OPTIONS, BODY_PART_OPTIONS, FAQ_QUESTIONS, FAQ_MAX,
   hasCenterWork, hasVisitWork, hasPlaceWork, deriveServiceMode,
+  cleanFaq, findBannedPhrase, bannedMessage, toOpenChatUrl,
 } from '@/lib/practitioner'
 
 const VISIT_RADIUS_OPTIONS = [3, 5, 10, 20, 30]
@@ -76,6 +77,9 @@ export default function MyPage() {
 
   const [kakaoLink, setKakaoLink] = useState('')
   const [intro, setIntro] = useState('')
+  // 질문답변: { process: '...', price: '...' } 형태 (답한 것만 저장)
+  const [faq, setFaq] = useState<Record<string, string>>({})
+  const [saveError, setSaveError] = useState('')
   const [studioName, setStudioName] = useState('')
   const [address, setAddress] = useState('')
   const [addressResult, setAddressResult] = useState<{ latitude: number; longitude: number; address: string } | null>(null)
@@ -93,10 +97,15 @@ export default function MyPage() {
 
   const hasCenter = hasCenterWork(workTypes)
   const canVisit = hasVisitWork(workTypes)
+  // 금지 표현(치료·완치·효과 보장 등) 검사 — 자기소개와 질문답변 모두
+  const introBanned = findBannedPhrase(intro)
+  const faqBanned = FAQ_QUESTIONS.some(f => findBannedPhrase(faq[f.key] ?? '') !== null)
+  const kakaoValid = toOpenChatUrl(kakaoLink) !== null
   const canSave =
     intro.trim().length >= 30 &&
     hasPlaceWork(workTypes) &&
-    (!hasCenter || studioName.trim().length > 0)
+    (!hasCenter || studioName.trim().length > 0) &&
+    !introBanned && !faqBanned && kakaoValid
   const toggleWorkType = (value: string) =>
     setWorkTypes(prev => (prev.includes(value) ? prev.filter(v => v !== value) : [...prev, value]))
 
@@ -152,6 +161,10 @@ export default function MyPage() {
     setTherapist(data)
     setKakaoLink(data.kakao_link || '')
     setIntro(data.intro || '')
+
+    // 질문답변은 따로 읽음 (칸이 아직 없어도 나머지 화면은 그대로 열리게)
+    const { data: faqRow } = await supabase.from('therapists').select('faq').eq('id', data.id).single()
+    setFaq(cleanFaq(faqRow?.faq))
     setStudioName(data.studio_name || '')
     setSelectedCerts(data.certifications || [])
     // 예전 가입자는 활동 형태가 비어 있을 수 있어, 방문 여부만 옮겨 담고 나머지는 직접 고르게 함
@@ -305,11 +318,13 @@ export default function MyPage() {
       if (uploadedUrl) profileImageUrl = uploadedUrl
     }
 
-    await supabase
+    setSaveError('')
+    const { error: updateError } = await supabase
       .from('therapists')
       .update({
-        kakao_link: kakaoLink,
+        kakao_link: toOpenChatUrl(kakaoLink) ?? kakaoLink.trim(),
         intro,
+        faq: cleanFaq(faq),
         studio_name: hasCenter ? studioName.trim() || null : null,
         latitude: addressResult?.latitude ?? therapist.latitude,
         longitude: addressResult?.longitude ?? therapist.longitude,
@@ -320,6 +335,14 @@ export default function MyPage() {
         visit_radius_km: canVisit ? visitRadius : null,
       })
       .eq('id', therapist.id)
+
+    // 저장이 안 됐는데 '완료'로 넘어가지 않도록
+    if (updateError) {
+      console.error('profile update error:', updateError)
+      setSaveError('저장하지 못했어요. 잠시 후 다시 시도해 주세요.')
+      setSaving(false)
+      return
+    }
 
     await supabase.from('therapist_tags').delete().eq('therapist_id', therapist.id)
 
@@ -567,6 +590,9 @@ export default function MyPage() {
             <div>
               <label className="text-sm font-bold text-gray-700 block mb-2">카카오톡 오픈채팅 링크</label>
               <input type="text" value={kakaoLink} onChange={(e) => setKakaoLink(e.target.value)} placeholder="https://open.kakao.com/o/..." className="w-full p-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#0A8A7B]" />
+              {kakaoLink.trim() !== '' && !kakaoValid && (
+                <p className="text-xs text-red-500 mt-1.5">카카오 오픈채팅 주소(https://open.kakao.com/...)를 넣어 주세요</p>
+              )}
             </div>
 
             <div>
@@ -616,6 +642,40 @@ export default function MyPage() {
               <label className="text-sm font-bold text-gray-700 block mb-2">자기소개 <span className="text-xs text-gray-400 font-normal">(최소 30자)</span></label>
               <textarea value={intro} onChange={(e) => setIntro(e.target.value)} rows={6} className="w-full p-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#0A8A7B] resize-none" />
               <p className="text-xs text-gray-400 mt-1 text-right">{intro.length}자</p>
+              {introBanned && <p className="text-xs text-red-500 mt-1 leading-relaxed">{bannedMessage(introBanned)}</p>}
+            </div>
+
+            {/* 질문답변 (숨고 참고) */}
+            <div className="pt-2 border-t border-gray-100">
+              <p className="text-sm font-bold text-gray-900 pt-4">
+                질문답변 <span className="text-xs text-gray-400 font-normal">(선택)</span>
+              </p>
+              <p className="text-xs text-gray-500 mt-1 mb-4 leading-relaxed">
+                보호자가 연락하기 전에 자주 묻는 것들이에요. 답을 적은 질문만 프로필 &lsquo;질문답변&rsquo;에 보여요.
+              </p>
+              <div className="space-y-4">
+                {FAQ_QUESTIONS.map(f => {
+                  const value = faq[f.key] ?? ''
+                  const banned = findBannedPhrase(value)
+                  return (
+                    <div key={f.key}>
+                      <p className="text-sm font-bold text-gray-800 mb-1.5">Q. {f.q}</p>
+                      <textarea
+                        value={value}
+                        onChange={(e) => setFaq(prev => ({ ...prev, [f.key]: e.target.value }))}
+                        maxLength={FAQ_MAX}
+                        rows={3}
+                        placeholder={f.ph}
+                        className="w-full p-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#0A8A7B] resize-none"
+                      />
+                      <div className="flex justify-between gap-2 mt-1">
+                        <p className="text-xs text-red-500 leading-relaxed">{banned ? bannedMessage(banned) : ''}</p>
+                        <p className="text-xs text-gray-400 shrink-0">{value.length} / {FAQ_MAX}</p>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
             </div>
           </div>
         )}
@@ -632,6 +692,10 @@ export default function MyPage() {
 
       {step === 'edit' && (
         <div className="fixed bottom-0 left-0 right-0 max-w-md mx-auto px-5 py-4 bg-white border-t border-gray-100">
+          {saveError && <p className="text-sm text-red-500 text-center mb-2">{saveError}</p>}
+          {!saveError && (introBanned || faqBanned) && (
+            <p className="text-xs text-red-500 text-center mb-2">쓸 수 없는 표현이 있어 저장할 수 없어요. 빨간 안내를 확인해 주세요.</p>
+          )}
           <button onClick={handleSave} disabled={saving || uploadingImage || !canSave}
             className={'w-full py-4 rounded-2xl font-bold text-base transition-all ' + (!saving && !uploadingImage && canSave ? 'bg-[#0A8A7B] text-white active:scale-[0.98]' : 'bg-gray-100 text-gray-300 cursor-not-allowed')}>
             {uploadingImage ? '사진 업로드 중...' : saving ? '저장 중...' : '저장하기'}

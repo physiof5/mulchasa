@@ -47,14 +47,6 @@ const PURPOSE_GROUPS: Record<string, string[]> = {
 }
 
 
-// 설문(symptom)의 기간 id → 상담 폼(ConsultFormModal)의 기간 value 매핑
-const DURATION_TO_FORM: Record<string, string> = {
-  acute: '1주 이내',
-  weeks: '1개월 이내',
-  chronic: '3개월 이상',
-  // prevent(예방·관리)는 통증 시작 개념이 없어 비워둠
-}
-
 function getDistanceKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const R = 6371
   const dLat = (lat2 - lat1) * Math.PI / 180
@@ -383,13 +375,6 @@ function SearchContent() {
 
   const bodyPart = searchParams.get('part')
   const purpose = searchParams.get('purpose')
-  // 설문에서 넘어온 값 → 상담 폼 자동 채우기용
-  const durationParam = searchParams.get('duration')
-  const intensityParam = searchParams.get('intensity')
-  const initialDuration = durationParam ? (DURATION_TO_FORM[durationParam] || '') : ''
-  const initialPainLevel = intensityParam
-    ? Math.max(1, Math.min(10, Number(intensityParam)))
-    : undefined
   const userLat = searchParams.get('lat') ? Number(searchParams.get('lat')) : null
   const userLng = searchParams.get('lng') ? Number(searchParams.get('lng')) : null
   // 설문에서 고른 제공 방식: 'visit'(집으로 방문) / 'center'(센터 내방) / null(무관)
@@ -555,7 +540,11 @@ function SearchContent() {
       setTherapists(enriched)
       setLoading(false)
     }
-    fetchTherapists()
+    // 네트워크 오류가 나도 '찾고 있어요'에 멈추지 않게
+    fetchTherapists().catch(() => {
+      setTherapists([])
+      setLoading(false)
+    })
   }, [bodyPart, purpose, mode, userLat, userLng, hasLocation])
 
   useEffect(() => {
@@ -724,19 +713,30 @@ function SearchContent() {
                   ? '필터 조건에 맞는 전문가가 없습니다'
                   : isVisitMode
                     ? '방문 가능한 전문가가 아직 없어요'
-                    : '조건에 맞는 전문가가 없습니다'}
+                    : '아직 맞는 전문가가 없어요'}
               </p>
               <p className="text-sm text-gray-400 mb-6 leading-relaxed">
                 {isFilterActive
                   ? '필터를 조정해보세요'
                   : isVisitMode
-                    ? '이 지역에 방문 가능한 전문가가 아직 등록되지 않았어요. 센터 방문으로 다시 찾아보시겠어요?'
-                    : '부위나 목적을 다시 선택해보세요'}
+                    ? '이 지역에 방문 가능한 전문가가 아직 등록되지 않았어요. 요청서를 남기시면 운영팀이 연결을 도와드려요.'
+                    : '아직 이 분야 전문가가 많지 않아요. 요청서를 남기시면 운영팀이 연결을 도와드려요.'}
               </p>
               {isFilterActive ? (
                 <button onClick={resetFilters} className="px-6 py-3 bg-[#0A8A7B] text-white rounded-xl font-semibold">필터 초기화</button>
               ) : (
-                <button onClick={() => router.push('/')} className="px-6 py-3 bg-[#0A8A7B] text-white rounded-xl font-semibold">다시 검색하기</button>
+                <div className="flex flex-col gap-2.5 max-w-xs mx-auto">
+                  {/* 아직 전문가가 적은 시기: 요청서를 남기면 운영팀이 연결을 도움 */}
+                  <button
+                    onClick={() => router.push(purpose ? `/request?purpose=${encodeURIComponent(purpose)}` : '/request')}
+                    className="min-h-[52px] px-6 bg-[#0A8A7B] text-white rounded-xl font-bold text-[16px]"
+                  >
+                    방문 요청서 남기기
+                  </button>
+                  <button onClick={() => router.push('/find')} className="min-h-[52px] px-6 bg-white border border-gray-200 text-gray-600 rounded-xl font-semibold text-[16px]">
+                    상황 다시 고르기
+                  </button>
+                </div>
               )}
             </div>
           ) : (
@@ -760,10 +760,7 @@ function SearchContent() {
         onClose={() => setSelectedTherapist(null)}
         therapistName={selectedTherapist?.name || ''}
         kakaoLink={selectedTherapist?.kakao_link || ''}
-        bodyPart={bodyPart}
         purpose={purpose}
-        initialDuration={initialDuration}
-        initialPainLevel={initialPainLevel}
       />
     </main>
   )

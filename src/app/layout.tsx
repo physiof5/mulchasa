@@ -1,9 +1,13 @@
 import type { Metadata, Viewport } from 'next'
 import './globals.css'
 
+// 앱 이름은 아직 정하지 않아, 블로그·유튜브 채널 이름 '보호가 필요해'를 임시로 씀
 export const metadata: Metadata = {
-  title: '물찾사 - 물리치료사 매칭 플랫폼',
-  description: '물리치료사 · 물리치료사 출신 운동전문가를 부위와 목적에 맞게 찾아드려요',
+  title: {
+    default: '보호가 필요해 — 부모님 돌봄 길잡이',
+    template: '%s | 보호가 필요해',
+  },
+  description: '장기요양·복지 정보, 1분 자가진단, 물리치료사의 운동 지도까지. 부모님 돌봄을 물리치료사·사회복지사가 함께 봐 드려요.',
   manifest: '/manifest.json',
   appleWebApp: {
     capable: true,
@@ -20,8 +24,7 @@ export const viewport: Viewport = {
   themeColor: '#0A8A7B',
   width: 'device-width',
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
+  // 어르신·보호자가 글자를 키워 볼 수 있도록 화면 확대를 막지 않음
 }
 
 export default function RootLayout({

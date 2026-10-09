@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabase'
 import {
   WORK_TYPES, PURPOSE_OPTIONS, BODY_PART_OPTIONS, PRACTICE_RULES,
   hasCenterWork, hasVisitWork, hasPlaceWork, deriveServiceMode,
+  findBannedPhrase, bannedMessage, toOpenChatUrl,
 } from '@/lib/practitioner'
 
 const VISIT_RADIUS_OPTIONS = [3, 5, 10, 20, 30]
@@ -144,7 +145,10 @@ export default function RegisterPage() {
   // 전문 부위는 선택 사항 (신경계 재활 전문가는 부위 대신 분야로 고를 수 있음)
   const canProceedStep3 = selectedPurposes.length > 0
   const canProceedStep4 = availability.length > 0
-  const canSubmit = intro.trim().length >= 30 && kakaoLink.trim() && allAgreed
+  // 자기소개에 '치료·완치·효과 보장' 같은 표현이 있으면 가입 신청을 막음 (표현 원칙)
+  const introBanned = findBannedPhrase(intro)
+  const kakaoValid = toOpenChatUrl(kakaoLink) !== null
+  const canSubmit = intro.trim().length >= 30 && kakaoValid && !introBanned && allAgreed
 
   const handleSubmit = async () => {
     setSubmitting(true)
@@ -186,7 +190,7 @@ export default function RegisterPage() {
           hospital_name: null,
           studio_name: hasCenter ? studioName.trim() || null : null,
           phone,
-          kakao_link: kakaoLink,
+          kakao_link: toOpenChatUrl(kakaoLink) ?? kakaoLink.trim(),
           intro,
           verification_status: 'pending',
           latitude: addressResult?.latitude || null,
@@ -569,12 +573,21 @@ export default function RegisterPage() {
             <div>
               <label className="text-sm font-bold text-gray-700 block mb-2">카카오톡 오픈채팅 링크 *</label>
               <input type="text" value={kakaoLink} onChange={(e) => setKakaoLink(e.target.value)} placeholder="https://open.kakao.com/o/..." className="w-full p-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#0A8A7B]" />
-              <p className="text-xs text-gray-400 mt-2">보호자가 상담을 원하면 이 링크로 연결돼요 (전화번호는 공개되지 않아요)</p>
+              {kakaoLink.trim() !== '' && !kakaoValid ? (
+                <p className="text-xs text-red-500 mt-2">카카오 오픈채팅 주소(https://open.kakao.com/...)를 넣어 주세요</p>
+              ) : (
+                <p className="text-xs text-gray-400 mt-2">보호자가 상담을 원하면 이 링크로 연결돼요 (전화번호는 공개되지 않아요)</p>
+              )}
             </div>
             <div>
               <label className="text-sm font-bold text-gray-700 block mb-2">자기소개 * <span className="text-xs text-gray-400 font-normal">(최소 30자)</span></label>
               <textarea value={intro} onChange={(e) => setIntro(e.target.value)} placeholder="보호자에게 보여질 소개예요. 경력, 자신 있는 운동 지도, 진행 방식을 적어 주세요." rows={6} className="w-full p-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#0A8A7B] resize-none" />
               <p className="text-xs text-gray-400 mt-2 text-right">{intro.length} / 최소 30자</p>
+              {introBanned ? (
+                <p className="text-xs text-red-500 mt-1 leading-relaxed">{bannedMessage(introBanned)}</p>
+              ) : (
+                <p className="text-xs text-gray-400 mt-1 leading-relaxed">&lsquo;치료·완치·효과 보장&rsquo; 같은 표현은 쓸 수 없어요</p>
+              )}
             </div>
 
             {/* 개인정보 동의 */}
@@ -659,6 +672,7 @@ export default function RegisterPage() {
                 <li>운영팀이 면허번호를 확인하고 검토합니다</li>
                 <li>승인 완료 시 등록하신 연락처로 안내 문자가 발송됩니다</li>
                 <li>승인 후 검색 결과에 프로필이 노출됩니다</li>
+                <li>MY에서 &lsquo;질문답변&rsquo;을 채워 두면 보호자가 더 편하게 연락해요</li>
               </ol>
             </div>
             <button onClick={() => router.push('/')} className="px-8 py-3 bg-[#0A8A7B] text-white rounded-xl font-semibold">홈으로</button>

@@ -2,6 +2,8 @@
 
 import { useState, Suspense } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
+import { situationLines } from '@/lib/care'
+import { useStoredSituation } from '@/lib/useStoredSituation'
 
 const BRAND = '#0A8A7B'
 
@@ -21,23 +23,7 @@ const SLOTS = [
   { value: 'evening', label: '저녁', desc: '18-21시' },
 ]
 
-const DURATION_LABELS: Record<string, string> = {
-  acute: '3일 이내',
-  weeks: '1주 ~ 1개월',
-  chronic: '3개월 이상',
-  prevent: '예방·관리 목적',
-}
-
-const NATURE_LABELS: Record<string, string> = {
-  rest: '가만히 있어도 욱신거림',
-  motion: '특정 동작에서 아픔',
-  stiff: '뻣뻣하고 결림',
-  numb: '저리거나 찌릿함',
-  postop: '수술·부상 후 회복 중',
-  posture: '자세·체형 걱정',
-}
-
-// 주소에서 "시/구" 수준까지만 뽑아 치료사에게 보여줄 지역 라벨 생성
+// 주소에서 "시/구" 수준까지만 뽑아 전문가에게 보여줄 지역 라벨 생성
 function toAreaLabel(address: string): string {
   const parts = address.trim().split(/\s+/)
   return parts.slice(0, 3).join(' ')
@@ -47,14 +33,11 @@ function RequestForm() {
   const searchParams = useSearchParams()
   const router = useRouter()
 
-  // 설문에서 넘어온 증상 정보
-  const bodyPart = searchParams.get('part')
-  const purpose = searchParams.get('purpose')
-  const subject = searchParams.get('subject')
-  const duration = searchParams.get('duration')
-  const nature = searchParams.get('nature')
-  const intensityParam = searchParams.get('intensity')
-  const intensity = intensityParam ? Number(intensityParam) : null
+  // 운동 지도 분야는 주소로, 부모님 상황은 이 기기 sessionStorage로 넘어옴 (건강 정보를 주소창에 남기지 않기 위해)
+  const purposeParam = searchParams.get('purpose')
+  const situation = useStoredSituation()
+  // 주소에 분야가 있으면 그것을 먼저 (예: 낙상 체크 결과에서 넘어온 경우)
+  const purpose = purposeParam ?? situation?.purpose ?? null
 
   const [nickname, setNickname] = useState('')
   const [contactType, setContactType] = useState<'phone' | 'kakao'>('phone')
@@ -118,12 +101,12 @@ function RequestForm() {
           nickname,
           contactType,
           contact,
-          subject,
-          bodyPart,
-          duration,
-          nature,
-          intensity,
+          subject: 'family',
           purpose,
+          // 장기요양등급·희망 장소는 운동 지도 제안에 꼭 필요하지 않아 보내지 않음 (최소 수집)
+          situation: situation
+            ? { who: situation.who, age: situation.age, mobility: situation.mobility, conditions: situation.conditions, fell: situation.fell }
+            : null,
           note,
           latitude: addressResult.latitude,
           longitude: addressResult.longitude,
@@ -162,22 +145,25 @@ function RequestForm() {
     return (
       <main className="max-w-md mx-auto min-h-screen bg-white px-5 py-16 text-center">
         <div className="text-6xl mb-6">📮</div>
-        <h1 className="text-xl font-extrabold text-gray-900 mb-3">요청서가 등록됐어요</h1>
-        <p className="text-sm text-gray-500 leading-relaxed mb-8">
-          주변의 면허 검증된 방문 전문가에게<br />
-          요청서가 전달됐습니다.<br />
-          제안이 오면 확인하실 수 있어요.
+        <h1 className="text-[22px] font-extrabold text-gray-900 mb-3">요청서가 접수됐어요</h1>
+        <p className="text-[16px] text-gray-600 leading-relaxed mb-8">
+          운영팀이 요청서를 확인하고,<br />
+          연결할 수 있는 물리치료사가 있으면<br />
+          남겨주신 연락처로 안내드릴게요.
         </p>
         <div className="bg-[#E8F6F4] rounded-2xl p-5 mb-8 text-left">
           <p className="text-sm font-bold text-[#067A6C] mb-2">📋 다음 단계</p>
-          <ol className="text-sm text-gray-700 space-y-1.5 list-decimal list-inside leading-relaxed">
-            <li>방문 가능 지역의 전문가들이 요청서를 확인합니다</li>
-            <li>관심 있는 전문가가 제안을 보내드려요</li>
-            <li>제안을 비교하고 마음에 드는 분을 선택하세요</li>
+          <ol className="text-[15px] text-gray-700 space-y-1.5 list-decimal list-inside leading-relaxed">
+            <li>운영팀이 지역·상황·시간이 맞는 전문가를 찾아요</li>
+            <li>연결이 정해지면 연락처로 먼저 알려 드려요</li>
+            <li>전문가와 직접 일정과 비용을 이야기 나누세요</li>
           </ol>
+          <p className="text-[13px] text-gray-500 mt-3 leading-relaxed">
+            지금은 시범 운영을 준비하고 있어 지역에 따라 연결이 늦거나 어려울 수 있어요.
+          </p>
         </div>
-        <p className="text-xs text-gray-400 leading-relaxed mb-6">
-          상세 주소와 연락처는 제안을 수락한 전문가에게만 공개됩니다.
+        <p className="text-[14px] text-gray-500 leading-relaxed mb-6">
+          상세 주소와 연락처는 연결이 정해진 전문가에게만 전달돼요.
         </p>
         <button onClick={() => router.push('/')} className="px-8 py-3 text-white rounded-xl font-semibold" style={{ background: BRAND }}>
           홈으로
@@ -197,17 +183,33 @@ function RequestForm() {
       </div>
 
       <div className="px-5 py-6 space-y-7">
-        {/* 증상 요약 (설문 결과) */}
-        {(bodyPart || purpose) && (
-          <div className="bg-gray-50 rounded-2xl p-4">
-            <p className="text-xs font-bold text-gray-400 mb-2">설문에서 알려주신 내용</p>
-            <div className="space-y-1.5 text-sm text-gray-700">
-              {bodyPart && <div>· 부위: <b>{bodyPart}</b></div>}
-              {duration && <div>· 기간: {DURATION_LABELS[duration] || duration}</div>}
-              {nature && <div>· 상태: {NATURE_LABELS[nature] || nature}</div>}
-              {intensity !== null && <div>· 통증 강도: {intensity} / 10</div>}
-              {purpose && <div>· 원하는 도움: <b>{purpose}</b></div>}
+        {/* 맞춤 찾기에서 고른 상황 (이 기기에만 있던 값 — 아래 동의 후 요청서와 함께 전송) */}
+        {situation ? (
+          <div className="rounded-2xl p-4" style={{ background: '#E8F6F4' }}>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-[15px] font-bold" style={{ color: '#0F6E56' }}>맞춤 찾기에서 고른 상황</p>
+              <button type="button" onClick={() => router.push('/find')} className="min-h-[40px] px-2 text-[14px] font-semibold text-gray-500 underline">
+                다시 고르기
+              </button>
             </div>
+            <ul className="space-y-1">
+              {situationLines(situation).map((l) => (
+                <li key={l.label} className="text-[15px] text-gray-700">
+                  {l.icon} {l.label}: {l.value}
+                </li>
+              ))}
+              {purpose && <li className="text-[15px] text-gray-700">🎯 운동 지도 분야: <b>{purpose}</b></li>}
+            </ul>
+          </div>
+        ) : (
+          <div className="rounded-2xl p-4 bg-gray-50">
+            <p className="text-[15px] text-gray-600 leading-relaxed">
+              부모님 상황을 먼저 고르시면 전문가가 더 잘 준비할 수 있어요.
+            </p>
+            <button type="button" onClick={() => router.push('/find')} className="mt-2 min-h-[44px] text-[15px] font-bold" style={{ color: '#0F6E56' }}>
+              1분 맞춤 찾기 하기 ›
+            </button>
+            {purpose && <p className="text-[15px] text-gray-700 mt-1">🎯 운동 지도 분야: <b>{purpose}</b></p>}
           </div>
         )}
 
@@ -225,22 +227,22 @@ function RequestForm() {
 
         {/* 호칭 */}
         <div>
-          <label className="text-sm font-bold text-gray-700 block mb-2">
-            어떻게 불러드릴까요? *
+          <label className="text-[16px] font-bold text-gray-800 block mb-2">
+            연락받으실 분을 어떻게 불러드릴까요? *
           </label>
           <input
             type="text"
             value={nickname}
             onChange={(e) => setNickname(e.target.value)}
-            placeholder="예: 김OO, 어머니"
-            className="w-full p-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#0A8A7B]"
+            placeholder="예: 김OO, 큰딸"
+            className="w-full p-3 border border-gray-200 rounded-xl text-[16px] focus:outline-none focus:border-[#0A8A7B]"
           />
-          <p className="text-xs text-gray-400 mt-2">실명이 아니어도 괜찮아요</p>
+          <p className="text-[13px] text-gray-500 mt-2">실명이 아니어도 괜찮아요</p>
         </div>
 
         {/* 방문 주소 */}
         <div>
-          <label className="text-sm font-bold text-gray-700 block mb-2">방문 받으실 주소 *</label>
+          <label className="text-[16px] font-bold text-gray-800 block mb-2">방문 받으실 주소 *</label>
           <div className="flex gap-2 mb-2">
             <input
               type="text"
@@ -248,7 +250,7 @@ function RequestForm() {
               onChange={(e) => { setAddress(e.target.value); setAddressResult(null) }}
               onKeyDown={(e) => e.key === 'Enter' && handleAddressSearch()}
               placeholder="예: 성남시 분당구 판교역로 100"
-              className="flex-1 p-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#0A8A7B]"
+              className="flex-1 p-3 border border-gray-200 rounded-xl text-[16px] focus:outline-none focus:border-[#0A8A7B]"
             />
             <button
               onClick={handleAddressSearch}
@@ -277,18 +279,18 @@ function RequestForm() {
             value={addressDetail}
             onChange={(e) => setAddressDetail(e.target.value)}
             placeholder="상세주소 (동·호수 등)"
-            className="w-full p-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#0A8A7B]"
+            className="w-full p-3 border border-gray-200 rounded-xl text-[16px] focus:outline-none focus:border-[#0A8A7B]"
           />
-          <p className="text-xs text-gray-400 mt-2 leading-relaxed">
-            🔒 전문가에게는 <b>&lsquo;성남시 분당구&rsquo;</b> 정도만 보여요.
-            정확한 주소는 제안을 수락하신 후에만 공개됩니다.
+          <p className="text-[13px] text-gray-500 mt-2 leading-relaxed">
+            🔒 연결 전에는 <b>&lsquo;성남시 분당구&rsquo;</b> 정도만 전해요.
+            정확한 주소는 연결이 정해진 전문가에게만 전달돼요.
           </p>
         </div>
 
         {/* 희망 시간 */}
         <div>
-          <label className="text-sm font-bold text-gray-700 block mb-1">언제 방문받고 싶으세요? *</label>
-          <p className="text-xs text-gray-400 mb-3">가능한 시간을 모두 골라주시면 매칭이 쉬워져요</p>
+          <label className="text-[16px] font-bold text-gray-800 block mb-1">언제 방문받고 싶으세요? *</label>
+          <p className="text-[14px] text-gray-500 mb-3">가능한 시간을 모두 골라 주시면 연결이 쉬워져요</p>
           <div className="border border-gray-100 rounded-2xl overflow-hidden">
             <div className="grid grid-cols-4 bg-gray-50">
               <div className="p-2.5 text-xs font-bold text-gray-400">요일</div>
@@ -322,14 +324,14 @@ function RequestForm() {
               </div>
             ))}
           </div>
-          <p className="text-xs text-gray-400 mt-2 text-center">
+          <p className="text-[13px] text-gray-500 mt-2 text-center">
             {slots.length > 0 ? `${slots.length}개 시간대 선택됨` : '최소 1개 이상 선택해주세요'}
           </p>
         </div>
 
         {/* 연락 방법 */}
         <div>
-          <label className="text-sm font-bold text-gray-700 block mb-2">연락 방법 *</label>
+          <label className="text-[16px] font-bold text-gray-800 block mb-2">연락 방법 *</label>
           <div className="flex gap-2 mb-2">
             <button
               onClick={() => setContactType('phone')}
@@ -353,24 +355,24 @@ function RequestForm() {
             value={contact}
             onChange={(e) => setContact(e.target.value)}
             placeholder={contactType === 'phone' ? '010-0000-0000' : 'https://open.kakao.com/o/...'}
-            className="w-full p-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#0A8A7B]"
+            className="w-full p-3 border border-gray-200 rounded-xl text-[16px] focus:outline-none focus:border-[#0A8A7B]"
           />
-          <p className="text-xs text-gray-400 mt-2">
-            🔒 제안을 수락하신 전문가에게만 공개됩니다
+          <p className="text-[13px] text-gray-500 mt-2">
+            🔒 연결이 정해진 전문가에게만 전달돼요
           </p>
         </div>
 
         {/* 추가 내용 */}
         <div>
-          <label className="text-sm font-bold text-gray-700 block mb-2">
+          <label className="text-[16px] font-bold text-gray-800 block mb-2">
             더 전하고 싶은 내용 <span className="text-xs text-gray-400 font-normal">(선택)</span>
           </label>
           <textarea
             value={note}
             onChange={(e) => setNote(e.target.value)}
-            placeholder="예: 계단이 있어 거동이 어려워요 / 오전에 특히 뻣뻣합니다"
+            placeholder="예: 엘리베이터 없는 3층이에요 / 오른쪽 다리에 힘이 약하세요"
             rows={4}
-            className="w-full p-3 border border-gray-200 rounded-xl text-sm resize-none focus:outline-none focus:border-[#0A8A7B]"
+            className="w-full p-3 border border-gray-200 rounded-xl text-[16px] resize-none focus:outline-none focus:border-[#0A8A7B]"
           />
         </div>
 
@@ -407,7 +409,7 @@ function RequestForm() {
               onChange={setAgreeSensitive}
               title="[필수] 건강 정보(민감정보) 처리"
               lines={[
-                '항목: 부위·기간·상태·통증·메모',
+                '항목: 연세대·거동·질환·낙상 경험·메모',
                 '목적: 알맞은 운동 지도 제안',
                 '보관: 위와 같음',
               ]}
@@ -418,8 +420,8 @@ function RequestForm() {
               onChange={setAgreeShare}
               title="[필수] 개인정보 제3자 제공"
               lines={[
-                '전문가들: 지역·건강 정보·시간 열람',
-                '수락한 전문가: 연락처·상세 주소',
+                '연결 후보 전문가: 지역·건강 정보·시간',
+                '연결된 전문가: 연락처·상세 주소',
                 '목적: 일정 조율·운동 지도',
                 '보관: 서비스 종료 시까지',
               ]}

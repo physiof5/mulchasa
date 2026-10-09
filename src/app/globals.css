@@ -10,6 +10,9 @@ body {
   font-family: 'Pretendard', -apple-system, BlinkMacSystemFont,
     'Segoe UI', sans-serif;
   -webkit-font-smoothing: antialiased;
+  /* 한국어는 낱말 중간에서 줄이 바뀌지 않게 (긴 주소·링크는 넘치지 않게 끊음) */
+  word-break: keep-all;
+  overflow-wrap: anywhere;
 }
 
 button, a {
