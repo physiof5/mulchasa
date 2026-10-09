@@ -88,6 +88,15 @@ export default function RegisterPage() {
   const [selectedCerts, setSelectedCerts] = useState<string[]>([])
   // "요일-시간대" 형태로 저장 (예: "1-morning")
   const [availability, setAvailability] = useState<string[]>([])
+  // 개인정보 동의 (2가지 모두 필수)
+  const [agreeCollect, setAgreeCollect] = useState(false)
+  const [agreePublic, setAgreePublic] = useState(false)
+  const allAgreed = agreeCollect && agreePublic
+  const toggleAll = () => {
+    const next = !allAgreed
+    setAgreeCollect(next)
+    setAgreePublic(next)
+  }
 
   const isVisitOnly = serviceMode === 'visit'
   const canVisit = serviceMode === 'visit' || serviceMode === 'both'
@@ -161,7 +170,7 @@ export default function RegisterPage() {
     (isVisitOnly ? true : (hospitalName.trim() || studioName.trim()))
   const canProceedStep3 = selectedBodyParts.length > 0 && selectedPurposes.length > 0
   const canProceedStep4 = availability.length > 0
-  const canSubmit = intro.trim().length >= 30 && kakaoLink.trim()
+  const canSubmit = intro.trim().length >= 30 && kakaoLink.trim() && allAgreed
 
   const handleSubmit = async () => {
     setSubmitting(true)
@@ -208,6 +217,7 @@ export default function RegisterPage() {
           latitude: addressResult?.latitude || null,
           longitude: addressResult?.longitude || null,
           certifications: selectedCerts,
+          consented_at: new Date().toISOString(),
         })
         .select()
         .single()
@@ -614,6 +624,54 @@ export default function RegisterPage() {
               <textarea value={intro} onChange={(e) => setIntro(e.target.value)} placeholder="환자에게 보여질 자기소개를 작성해주세요." rows={6} className="w-full p-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#0A8A7B] resize-none" />
               <p className="text-xs text-gray-400 mt-2 text-right">{intro.length} / 최소 30자</p>
             </div>
+
+            {/* 개인정보 동의 */}
+            <div className="rounded-2xl border border-gray-200 overflow-hidden">
+              <button
+                type="button"
+                onClick={toggleAll}
+                className="w-full flex items-center gap-3 p-4 text-left"
+                style={{ background: allAgreed ? '#E8F6F4' : '#F9FAFB' }}
+              >
+                <span
+                  className="w-6 h-6 rounded-md flex items-center justify-center text-white text-sm shrink-0"
+                  style={{ background: allAgreed ? '#0A8A7B' : '#D1D5DB' }}
+                >
+                  ✓
+                </span>
+                <span className="text-[16px] font-bold text-gray-900">아래 내용에 모두 동의해요</span>
+              </button>
+              <div className="p-4 space-y-4 border-t border-gray-100">
+                <ConsentRow
+                  checked={agreeCollect}
+                  onChange={setAgreeCollect}
+                  title="[필수] 개인정보 수집·이용"
+                  lines={[
+                    '항목: 이름·이메일·휴대폰·면허번호',
+                    '경력·활동 정보·소개·사진·시간',
+                    '목적: 면허 확인, 프로필, 안내 문자',
+                    '보관: 탈퇴 시까지',
+                  ]}
+                />
+                <ConsentRow
+                  checked={agreePublic}
+                  onChange={setAgreePublic}
+                  title="[필수] 프로필 공개"
+                  lines={[
+                    '공개: 이름·경력·소속·활동 지역',
+                    '전문 분야·소개·자격증·사진·시간',
+                    '공개: 카카오 오픈채팅 링크',
+                    '비공개: 이메일·휴대폰·면허번호',
+                  ]}
+                />
+                <p className="text-[13px] text-gray-500 leading-relaxed">
+                  동의하지 않으실 수 있지만, 이 경우 가입할 수 없어요.{' '}
+                  <a href="/privacy" target="_blank" rel="noopener noreferrer" className="underline">
+                    개인정보처리방침 보기
+                  </a>
+                </p>
+              </div>
+            </div>
           </div>
         )}
 
@@ -683,5 +741,36 @@ export default function RegisterPage() {
         </div>
       )}
     </main>
+  )
+}
+
+function ConsentRow({
+  checked,
+  onChange,
+  title,
+  lines,
+}: {
+  checked: boolean
+  onChange: (v: boolean) => void
+  title: string
+  lines: string[]
+}) {
+  return (
+    <label className="flex gap-3 cursor-pointer">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        className="w-6 h-6 mt-0.5 shrink-0 accent-[#0A8A7B]"
+      />
+      <span className="min-w-0">
+        <span className="block text-[15px] font-bold text-gray-900 mb-1">{title}</span>
+        {lines.map((line) => (
+          <span key={line} className="block text-[13px] text-gray-500 leading-relaxed">
+            · {line}
+          </span>
+        ))}
+      </span>
+    </label>
   )
 }

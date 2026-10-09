@@ -14,7 +14,6 @@ interface Therapist {
   years_experience: number
   practitioner_type: string
   intro: string
-  phone: string
   kakao_link: string
   latitude: number | null
   longitude: number | null
@@ -489,7 +488,10 @@ function SearchContent() {
       if (therapistIds.length === 0) { setTherapists([]); setLoading(false); return }
 
       const { data: tDataRaw } = await supabase
-        .from('therapists').select('*').in('id', therapistIds).eq('verification_status', 'verified')
+        // 검색 카드에 필요한 칸만 (면허번호·이메일·휴대폰은 가져오지 않음)
+        .from('therapists')
+        .select('id, name, hospital_name, studio_name, years_experience, practitioner_type, intro, kakao_link, latitude, longitude, profile_image_url, service_mode, visit_radius_km')
+        .in('id', therapistIds).eq('verification_status', 'verified')
       if (!tDataRaw) { setTherapists([]); setLoading(false); return }
 
       // 제공 방식 필터

@@ -8,12 +8,10 @@ import ConsultFormModal from '@/components/ConsultFormModal'
 interface Therapist {
   id: string
   name: string
-  license_number: string
   years_experience: number
   practitioner_type: string
   hospital_name: string | null
   studio_name: string | null
-  phone: string
   kakao_link: string
   intro: string
   verification_status: string
@@ -71,7 +69,8 @@ export default function TherapistDetailPage() {
 
       const { data: tData } = await supabase
         .from('therapists')
-        .select('*')
+        // 공개 프로필에 필요한 칸만 (면허번호·이메일·휴대폰은 가져오지 않음)
+        .select('id, name, years_experience, practitioner_type, hospital_name, studio_name, kakao_link, intro, verification_status, profile_image_url, certifications')
         .eq('id', id)
         .eq('verification_status', 'verified')
         .single()
@@ -569,15 +568,6 @@ export default function TherapistDetailPage() {
 
       {/* ===== 하단 고정 CTA ===== */}
       <div className="fixed bottom-0 left-0 right-0 max-w-md mx-auto px-4 py-3 bg-white border-t border-gray-100 z-40 flex items-center gap-3">
-        {therapist.phone && (
-          <a
-            href={`tel:${therapist.phone}`}
-            className="flex flex-col items-center justify-center w-14 shrink-0 text-gray-600 active:scale-95 transition"
-          >
-            <span className="text-xl leading-none">📞</span>
-            <span className="text-[11px] font-semibold mt-1">전화</span>
-          </a>
-        )}
         <button
           onClick={() => setShowModal(true)}
           className="flex-1 py-4 bg-[#FEE500] text-gray-900 text-center rounded-2xl font-bold text-base active:scale-[0.98] transition-all"
