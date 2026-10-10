@@ -9,6 +9,9 @@ import {
   cleanFaq, findBannedPhrase, bannedMessage, toOpenChatUrl,
 } from '@/lib/practitioner'
 import MyProfileView from '@/components/MyProfileView'
+import GuestMy from '@/components/GuestMy'
+import KakaoLoginButton from '@/components/KakaoLoginButton'
+import type { User } from '@supabase/supabase-js'
 import SquareCropper from '@/components/SquareCropper'
 import { PHOTO_MAX, pickPhotos } from '@/lib/squareImage'
 
@@ -86,13 +89,10 @@ interface Therapist {
 
 export default function MyPage() {
   const router = useRouter()
-  // 로그인하면 '내 프로필'(view)을 먼저 보여 주고, 수정은 버튼으로 들어간다
-  const [step, setStep] = useState<'login' | 'view' | 'edit'>('login')
+  // 로그인 안 함 → login / 일반 회원 → guest / 전문가 → '내 프로필'(view) 먼저, 수정은 버튼으로(edit)
+  const [step, setStep] = useState<'login' | 'guest' | 'view' | 'edit'>('login')
   const [checking, setChecking] = useState(true)
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [loggingIn, setLoggingIn] = useState(false)
-  const [loginError, setLoginError] = useState('')
+  const [authUser, setAuthUser] = useState<User | null>(null)
   const [therapist, setTherapist] = useState<Therapist | null>(null)
   const [saving, setSaving] = useState(false)
 
@@ -305,17 +305,18 @@ export default function MyPage() {
     return true
   }, [])
 
-  // 진입 시 기존 세션 확인 (로그인 상태면 바로 편집 화면)
+  // 진입 시 로그인 확인: 전문가면 내 프로필(가입 직후 ?edit=1이면 바로 수정), 아니면 일반 회원 MY
   useEffect(() => {
     let active = true
     async function restore() {
       const { data: { session } } = await supabase.auth.getSession()
       if (!active) return
       if (session?.user) {
+        setAuthUser(session.user)
         const ok = await loadTherapist(session.user.id)
         if (!active) return
-        if (ok) setStep('view')
-        else setLoginError('이 계정에 연결된 전문가 프로필이 없습니다. 가입 신청을 먼저 진행해주세요.')
+        const wantsEdit = new URLSearchParams(window.location.search).get('edit') === '1'
+        setStep(ok ? (wantsEdit ? 'edit' : 'view') : 'guest')
       }
       setChecking(false)
     }
@@ -323,53 +324,10 @@ export default function MyPage() {
     return () => { active = false }
   }, [loadTherapist])
 
-  const handleLogin = async () => {
-    if (!email.trim() || !password) return
-    setLoggingIn(true)
-    setLoginError('')
-
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email: email.trim(),
-      password,
-    })
-
-    if (error) {
-      const msg = (error.message || '').toLowerCase()
-      if (msg.includes('email not confirmed')) {
-        setLoginError('이메일 확인이 아직 안 됐어요. 받은 메일의 링크를 눌러주세요.')
-      } else if (msg.includes('invalid login')) {
-        setLoginError('이메일 또는 비밀번호가 올바르지 않습니다.')
-      } else {
-        setLoginError('로그인에 실패했습니다: ' + error.message)
-      }
-      setLoggingIn(false)
-      return
-    }
-
-    const userId = data.user?.id
-    if (!userId) {
-      setLoginError('로그인 정보를 확인할 수 없습니다.')
-      setLoggingIn(false)
-      return
-    }
-
-    const ok = await loadTherapist(userId)
-    if (!ok) {
-      setLoginError('이 계정에 연결된 전문가 프로필이 없습니다. 가입 신청을 먼저 진행해주세요.')
-      await supabase.auth.signOut()
-      setLoggingIn(false)
-      return
-    }
-
-    setLoggingIn(false)
-    setStep('view')
-  }
-
   const handleLogout = async () => {
     await supabase.auth.signOut()
     setTherapist(null)
-    setEmail('')
-    setPassword('')
+    setAuthUser(null)
     setStep('login')
   }
 
@@ -488,18 +446,21 @@ export default function MyPage() {
     <main className="max-w-md mx-auto min-h-screen bg-white pb-24">
       <div className="sticky top-0 bg-white border-b border-gray-100 px-5 py-4 flex items-center gap-3 z-10">
         <button
-          onClick={() => (step === 'edit' ? (setStep('view'), window.scrollTo(0, 0)) : router.back())}
+          onClick={() => (step === 'edit' ? (setStep('view'), window.scrollTo(0, 0)) : step === 'guest' && therapist ? setStep('view') : router.back())}
           aria-label="뒤로"
           className="text-gray-600 text-xl"
         >
           ←
         </button>
         <h1 className="text-base font-bold text-gray-900 flex-1">
-          {step === 'login' && '전문가 로그인'}
+          {(step === 'login' || step === 'guest') && '마이페이지'}
           {step === 'view' && '내 프로필'}
           {step === 'edit' && '프로필 수정'}
         </h1>
-        {step !== 'login' && (
+        {step === 'view' && (
+          <button onClick={() => { setStep('guest'); window.scrollTo(0, 0) }} className="text-xs font-semibold text-[#0F6E56] mr-2">보호자 화면</button>
+        )}
+        {(step === 'view' || step === 'edit') && (
           <button onClick={handleLogout} className="text-xs text-gray-400">로그아웃</button>
         )}
       </div>
@@ -519,55 +480,38 @@ export default function MyPage() {
         />
       )}
 
-      <div className={'px-5 py-6' + (step === 'view' ? ' hidden' : '')}>
+      {!checking && step === 'guest' && authUser && (
+        <GuestMy
+          user={authUser}
+          isExpert={!!therapist}
+          onExpertMode={() => { setStep('view'); window.scrollTo(0, 0) }}
+          onLogout={handleLogout}
+        />
+      )}
+
+      <div className={'px-5 py-6' + (step === 'view' || step === 'guest' ? ' hidden' : '')}>
         {checking && (
           <p className="text-center text-gray-400 py-20">확인 중...</p>
         )}
 
         {!checking && step === 'login' && (
-          <div className="space-y-5">
-            <div className="bg-[#E8F6F4] rounded-2xl p-4 mb-6">
-              <p className="text-sm font-bold text-[#067A6C] mb-1">🔐 전문가 로그인</p>
-              <p className="text-xs text-gray-600 leading-relaxed">
-                가입 시 등록한 이메일과 비밀번호로 로그인해주세요.
-              </p>
+          <div className="pt-6">
+            <h2 className="text-[24px] font-extrabold text-gray-900 leading-snug">
+              로그인하고
+              <br />
+              부모님 돌봄을 이어 가세요
+            </h2>
+            <p className="text-[16px] text-gray-600 mt-2 leading-relaxed">
+              모두 카카오로 가입해요. 물리치료사는 가입한 뒤 &lsquo;전문가로 가입하기&rsquo;로 전환할 수 있어요.
+            </p>
+            <div className="mt-8">
+              <KakaoLoginButton next="/mypage" />
             </div>
-            <div>
-              <label className="text-sm font-bold text-gray-700 block mb-2">이메일</label>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="example@email.com"
-                autoComplete="email"
-                className="w-full p-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#0A8A7B]"
-              />
-            </div>
-            <div>
-              <label className="text-sm font-bold text-gray-700 block mb-2">비밀번호</label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
-                placeholder="비밀번호"
-                autoComplete="current-password"
-                className="w-full p-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#0A8A7B]"
-              />
-            </div>
-            {loginError && <p className="text-sm text-red-500 leading-relaxed">{loginError}</p>}
             <button
-              onClick={handleLogin}
-              disabled={loggingIn || !email.trim() || !password}
-              className={'w-full py-4 rounded-2xl font-bold text-base transition-all ' + (!loggingIn && email.trim() && password ? 'bg-[#0A8A7B] text-white active:scale-[0.98]' : 'bg-gray-100 text-gray-300 cursor-not-allowed')}
+              onClick={() => router.push('/login?next=/mypage')}
+              className="w-full min-h-[48px] mt-4 text-[15px] font-semibold text-gray-500"
             >
-              {loggingIn ? '로그인 중...' : '로그인'}
-            </button>
-            <button
-              onClick={() => router.push('/register')}
-              className="w-full py-3 text-gray-400 font-semibold text-sm"
-            >
-              아직 가입하지 않으셨나요? 전문가 가입 →
+              예전에 이메일로 가입한 전문가 로그인 ›
             </button>
           </div>
         )}

@@ -1,117 +1,100 @@
 'use client'
 
-import { useState } from 'react'
+// 전문가로 가입하기 — 카카오로 가입한 '일반 회원'이 물리치료사(전문가)로 전환하는 화면
+// 숨고 '고수가입' 흐름을 참고(그대로 베끼지 않음): 분야 → 활동 형태 → 활동 지역·거리 → 기본 정보 → 동의 → 프로필 작성 안내
+// 자기소개·사진·오픈채팅·가능한 시간·질문답변은 가입 뒤 MY '프로필 수정'에서 채운다(프로필 완성도로 안내).
+
+import { useEffect, useState } from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { findMyTherapistId, useAuthUser } from '@/lib/auth'
 import {
-  WORK_TYPES, PURPOSE_OPTIONS, BODY_PART_OPTIONS, PRACTICE_RULES,
+  WORK_TYPES, PURPOSE_OPTIONS, PURPOSE_INFO, BODY_PART_OPTIONS, PRACTICE_RULES,
   hasCenterWork, hasVisitWork, hasPlaceWork, deriveServiceMode,
-  findBannedPhrase, bannedMessage, toOpenChatUrl,
 } from '@/lib/practitioner'
 
+const GREEN = '#0A8A7B'
+const GREEN_DARK = '#0F6E56'
+const GREEN_LIGHT = '#E8F6F4'
 const VISIT_RADIUS_OPTIONS = [3, 5, 10, 20, 30]
+const TOTAL = 5
 
-const DAYS = [
-  { value: 1, label: '월' },
-  { value: 2, label: '화' },
-  { value: 3, label: '수' },
-  { value: 4, label: '목' },
-  { value: 5, label: '금' },
-  { value: 6, label: '토' },
-  { value: 0, label: '일' },
-]
-
-const SLOTS = [
-  { value: 'morning', label: '오전', desc: '09-12시' },
-  { value: 'afternoon', label: '오후', desc: '12-18시' },
-  { value: 'evening', label: '저녁', desc: '18-21시' },
-]
-
-const CERTIFICATION_OPTIONS = [
-  '물리치료사 면허',
-  '생활스포츠지도사 1급',
-  '생활스포츠지도사 2급',
-  '건강운동관리사',
-  '필라테스 지도자',
-  '요가 지도자',
-  'PNF',
-  '보바스',
-  'NSCA-CSCS',
-  'NASM-CPT',
-  'ACSM',
-]
+const TITLES: Record<number, string> = {
+  1: '어떤 운동 지도를\n하실 건가요?',
+  2: '어떤 형태로\n활동하세요?',
+  3: '어디에서\n활동하세요?',
+  4: '면허 확인을 위한\n기본 정보를 알려 주세요',
+  5: '마지막으로\n활동 원칙을 확인해 주세요',
+}
 
 export default function RegisterPage() {
   const router = useRouter()
+  const user = useAuthUser()
+  const [already, setAlready] = useState<boolean | null>(null)
   const [step, setStep] = useState(1)
   const [submitting, setSubmitting] = useState(false)
+  const [submitError, setSubmitError] = useState('')
+  const [done, setDone] = useState(false)
 
-  const [name, setName] = useState('')
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [passwordConfirm, setPasswordConfirm] = useState('')
-  const [needsEmailConfirm, setNeedsEmailConfirm] = useState(false)
-  const [licenseNumber, setLicenseNumber] = useState('')
-  const [yearsExperience, setYearsExperience] = useState<number>(1)
-  // 활동 형태 (운동센터 운영·소속 / 프리랜서 방문 / 파트타임) — 여러 개 선택
+  const [purposes, setPurposes] = useState<string[]>([])
+  const [bodyParts, setBodyParts] = useState<string[]>([])
+  const [showBodyParts, setShowBodyParts] = useState(false)
   const [workTypes, setWorkTypes] = useState<string[]>([])
-  const [visitRadius, setVisitRadius] = useState<number>(10)
   const [studioName, setStudioName] = useState('')
   const [address, setAddress] = useState('')
   const [addressResult, setAddressResult] = useState<{ latitude: number; longitude: number; address: string } | null>(null)
   const [addressLoading, setAddressLoading] = useState(false)
   const [addressError, setAddressError] = useState('')
+  const [radiusIndex, setRadiusIndex] = useState(2) // 10km
+  const [name, setName] = useState('')
+  const [licenseNumber, setLicenseNumber] = useState('')
+  const [years, setYears] = useState('')
   const [phone, setPhone] = useState('')
-  const [kakaoLink, setKakaoLink] = useState('')
-  const [intro, setIntro] = useState('')
-  const [selectedBodyParts, setSelectedBodyParts] = useState<string[]>([])
-  const [selectedPurposes, setSelectedPurposes] = useState<string[]>([])
-  const [selectedCerts, setSelectedCerts] = useState<string[]>([])
-  // "요일-시간대" 형태로 저장 (예: "1-morning")
-  const [availability, setAvailability] = useState<string[]>([])
-  // 동의 (3가지 모두 필수: 개인정보 수집·이용 / 프로필 공개 / 활동 원칙)
   const [agreeCollect, setAgreeCollect] = useState(false)
   const [agreePublic, setAgreePublic] = useState(false)
   const [agreeRules, setAgreeRules] = useState(false)
-  const allAgreed = agreeCollect && agreePublic && agreeRules
-  const toggleAll = () => {
-    const next = !allAgreed
-    setAgreeCollect(next)
-    setAgreePublic(next)
-    setAgreeRules(next)
-  }
+
+  // 로그인 안 했으면 로그인부터, 이미 전문가면 MY로
+  useEffect(() => {
+    if (user === null) {
+      router.replace('/login?next=/register&reason=expert')
+      return
+    }
+    if (!user) return
+    let alive = true
+    findMyTherapistId(user.id).then((id) => {
+      if (alive) setAlready(!!id)
+    })
+    return () => {
+      alive = false
+    }
+  }, [user, router])
+
+  useEffect(() => {
+    window.scrollTo(0, 0)
+  }, [step, done])
 
   const hasCenter = hasCenterWork(workTypes)
   const canVisit = hasVisitWork(workTypes)
-  const toggleWorkType = (value: string) =>
-    setWorkTypes(prev => (prev.includes(value) ? prev.filter(v => v !== value) : [...prev, value]))
+  const radius = VISIT_RADIUS_OPTIONS[radiusIndex]
+  const phoneDigits = phone.replace(/\D/g, '')
+  const yearsNum = Number(years)
+  const allAgreed = agreeCollect && agreePublic && agreeRules
 
-  const toggleBodyPart = (part: string) => {
-    setSelectedBodyParts(prev =>
-      prev.includes(part) ? prev.filter(p => p !== part) : [...prev, part]
-    )
+  const canNext: Record<number, boolean> = {
+    1: purposes.length > 0,
+    2: hasPlaceWork(workTypes) && (!hasCenter || studioName.trim().length > 0),
+    // 방문은 기준 주소가 있어야 거리 검색에 나와서 필수, 센터만이면 선택
+    3: !canVisit || !!addressResult,
+    4: name.trim().length >= 2 && licenseNumber.trim().length >= 3 && years !== '' && yearsNum >= 0 && yearsNum <= 60 && /^01\d{8,9}$/.test(phoneDigits),
+    5: allAgreed,
   }
 
-  const togglePurpose = (purpose: string) => {
-    setSelectedPurposes(prev =>
-      prev.includes(purpose) ? prev.filter(p => p !== purpose) : [...prev, purpose]
-    )
-  }
+  const toggle = (list: string[], set: (v: string[]) => void, value: string) =>
+    set(list.includes(value) ? list.filter((v) => v !== value) : [...list, value])
 
-  const toggleCert = (cert: string) => {
-    setSelectedCerts(prev =>
-      prev.includes(cert) ? prev.filter(c => c !== cert) : [...prev, cert]
-    )
-  }
-
-  const toggleSlot = (day: number, slot: string) => {
-    const key = `${day}-${slot}`
-    setAvailability(prev =>
-      prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]
-    )
-  }
-
-  const handleAddressSearch = async () => {
+  const searchAddress = async () => {
     if (!address.trim()) return
     setAddressLoading(true)
     setAddressError('')
@@ -119,630 +102,511 @@ export default function RegisterPage() {
     try {
       const res = await fetch(`/api/geocode?address=${encodeURIComponent(address)}`)
       const data = await res.json()
-      if (res.ok) {
-        setAddressResult(data)
-      } else {
-        setAddressError('주소를 찾을 수 없습니다. 더 자세히 입력해보세요.')
-      }
+      if (res.ok) setAddressResult(data)
+      else setAddressError('주소를 찾지 못했어요. 도로명이나 동 이름까지 넣어 보세요.')
     } catch {
-      setAddressError('주소 검색 중 오류가 발생했습니다.')
+      setAddressError('주소를 찾는 중 문제가 생겼어요. 다시 시도해 주세요.')
     } finally {
       setAddressLoading(false)
     }
   }
 
-  const emailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())
-  const passwordValid = password.length >= 8
-  const passwordMatch = password.length > 0 && password === passwordConfirm
-
-  const canProceedStep1 =
-    name.trim() && licenseNumber.trim() && phone.trim() &&
-    emailValid && passwordValid && passwordMatch
-  // 운영·소속·방문 중 하나는 필수, 운동센터를 골랐다면 센터 이름도 필수
-  const canProceedStep2 =
-    hasPlaceWork(workTypes) &&
-    (!hasCenter || studioName.trim().length > 0)
-  // 전문 부위는 선택 사항 (신경계 재활 전문가는 부위 대신 분야로 고를 수 있음)
-  const canProceedStep3 = selectedPurposes.length > 0
-  const canProceedStep4 = availability.length > 0
-  // 자기소개에 '치료·완치·효과 보장' 같은 표현이 있으면 가입 신청을 막음 (표현 원칙)
-  const introBanned = findBannedPhrase(intro)
-  const kakaoValid = toOpenChatUrl(kakaoLink) !== null
-  const canSubmit = intro.trim().length >= 30 && kakaoValid && !introBanned && allAgreed
-
-  const handleSubmit = async () => {
+  const submit = async () => {
+    if (!user) return
     setSubmitting(true)
-    try {
-      // 1) 로그인 계정 먼저 생성
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email: email.trim(),
-        password,
+    setSubmitError('')
+    const phoneFormatted = phoneDigits.replace(/^(\d{3})(\d{3,4})(\d{4})$/, '$1-$2-$3')
+    const { data: row, error } = await supabase
+      .from('therapists')
+      .insert({
+        name: name.trim(),
+        user_id: user.id,
+        email: user.email ?? null,
+        license_number: licenseNumber.trim(),
+        years_experience: yearsNum,
+        practitioner_type: 'physical_therapist',
+        work_types: workTypes,
+        service_mode: deriveServiceMode(workTypes),
+        visit_radius_km: canVisit ? radius : null,
+        hospital_name: null,
+        studio_name: hasCenter ? studioName.trim() : null,
+        phone: phoneFormatted,
+        // 소개·오픈채팅은 가입 뒤 프로필 작성에서 채운다
+        kakao_link: '',
+        intro: '',
+        verification_status: 'pending',
+        latitude: addressResult?.latitude ?? null,
+        longitude: addressResult?.longitude ?? null,
+        certifications: [],
+        consented_at: new Date().toISOString(),
       })
+      .select('id')
+      .single()
 
-      if (authError) {
-        const msg = authError.message || ''
-        if (msg.toLowerCase().includes('already')) {
-          alert('이미 가입된 이메일입니다.\n다른 이메일을 사용하시거나, 마이페이지에서 로그인해주세요.')
-        } else {
-          alert('계정 생성에 실패했습니다: ' + msg)
-        }
-        setSubmitting(false)
-        return
-      }
-
-      const userId = authData.user?.id ?? null
-      // 세션이 없으면 이메일 확인이 켜져 있다는 뜻
-      setNeedsEmailConfirm(!authData.session)
-
-      // 2) 치료사 프로필 저장
-      const { data: therapistData, error: therapistError } = await supabase
-        .from('therapists')
-        .insert({
-          name,
-          user_id: userId,
-          email: email.trim(),
-          license_number: licenseNumber,
-          years_experience: yearsExperience,
-          practitioner_type: 'physical_therapist',
-          work_types: workTypes,
-          service_mode: deriveServiceMode(workTypes),
-          visit_radius_km: canVisit ? visitRadius : null,
-          hospital_name: null,
-          studio_name: hasCenter ? studioName.trim() || null : null,
-          phone,
-          kakao_link: toOpenChatUrl(kakaoLink) ?? kakaoLink.trim(),
-          intro,
-          verification_status: 'pending',
-          latitude: addressResult?.latitude || null,
-          longitude: addressResult?.longitude || null,
-          certifications: selectedCerts,
-          consented_at: new Date().toISOString(),
-        })
-        .select('id')
-        .single()
-
-      if (therapistError) throw therapistError
-
-      const allTags = [...selectedBodyParts, ...selectedPurposes]
-      const { data: tagData } = await supabase
-        .from('tags')
-        .select('id, label')
-        .in('label', allTags)
-
-      if (tagData && tagData.length > 0) {
-        const therapistTags = tagData.map(tag => ({
-          therapist_id: therapistData.id,
-          tag_id: tag.id,
-        }))
-        await supabase.from('therapist_tags').insert(therapistTags)
-      }
-
-      // 가용 시간표 저장
-      if (availability.length > 0) {
-        const rows = availability.map(key => {
-          const [day, slot] = key.split('-')
-          return {
-            therapist_id: therapistData.id,
-            day_of_week: Number(day),
-            slot,
-          }
-        })
-        await supabase.from('therapist_availability').insert(rows)
-      }
-
-      setStep(6)
-    } catch (error) {
-      console.error('Error:', error)
-      alert('가입 신청 중 오류가 발생했습니다. 다시 시도해주세요.')
-    } finally {
+    if (error || !row) {
+      console.error('therapist insert error:', error)
+      setSubmitError(
+        error?.code === '23505'
+          ? '이미 이 계정으로 전문가 가입 신청을 했어요. MY에서 확인해 주세요.'
+          : '가입 신청을 저장하지 못했어요. 잠시 후 다시 시도해 주세요.'
+      )
       setSubmitting(false)
+      return
     }
+
+    const { data: tagData } = await supabase.from('tags').select('id, label').in('label', [...purposes, ...bodyParts])
+    if (tagData && tagData.length > 0) {
+      await supabase.from('therapist_tags').insert(tagData.map((t) => ({ therapist_id: row.id, tag_id: t.id })))
+    }
+    setSubmitting(false)
+    setDone(true)
   }
 
+  // ── 상태별 화면 ──
+  if (user === undefined || (user && already === null)) {
+    return (
+      <main className="max-w-md mx-auto min-h-screen bg-white flex items-center justify-center">
+        <div className="w-10 h-10 rounded-full border-4 border-gray-200 border-t-[#0A8A7B] animate-spin" aria-label="확인 중" />
+      </main>
+    )
+  }
+  if (!user) return null
+
+  if (already) {
+    return (
+      <main className="max-w-md mx-auto min-h-screen bg-white flex flex-col items-center justify-center px-6 text-center">
+        <p className="text-[22px] font-extrabold text-gray-900">이미 전문가로 가입했어요</p>
+        <p className="text-[16px] text-gray-600 mt-2">MY에서 프로필을 확인하고 채울 수 있어요.</p>
+        <Link href="/mypage" className="mt-6 min-h-[52px] px-8 rounded-xl text-white font-bold flex items-center" style={{ background: GREEN }}>
+          내 프로필로 가기
+        </Link>
+      </main>
+    )
+  }
+
+  if (done) return <ProfileTips name={name.trim()} />
+
   return (
-    <main className="max-w-md mx-auto min-h-screen bg-white pb-24">
-      <div className="sticky top-0 bg-white border-b border-gray-100 px-5 py-4 flex items-center gap-3 z-10">
-        {step > 1 && step < 6 && (
-          <button onClick={() => setStep(step - 1)} className="text-gray-600 text-xl">←</button>
-        )}
-        <div className="flex-1">
-          <p className="text-xs text-gray-400">전문가 가입 {step < 6 ? `${step}/5` : ''}</p>
-          <h1 className="text-base font-bold text-gray-900">
-            {step === 1 && '기본 정보'}
-            {step === 2 && '활동 정보'}
-            {step === 3 && '전문 분야'}
-            {step === 4 && '가능한 시간'}
-            {step === 5 && '자기소개'}
-            {step === 6 && '가입 신청 완료'}
-          </h1>
+    <main className="max-w-md mx-auto min-h-screen bg-white pb-28">
+      {/* 머리: 뒤로 · 제목 · 닫기 + 진행 막대 */}
+      <div className="sticky top-0 z-10 bg-white">
+        <div className="px-4 h-14 flex items-center">
+          <button
+            onClick={() => (step > 1 ? setStep(step - 1) : router.back())}
+            aria-label="이전"
+            className="w-12 h-12 -ml-2 flex items-center justify-center text-gray-600"
+          >
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="m15 5-7 7 7 7" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+          <p className="flex-1 text-center text-[17px] font-bold text-gray-900">전문가 가입</p>
+          <Link href="/mypage" aria-label="닫기" className="w-12 h-12 -mr-2 flex items-center justify-center text-gray-500 text-[26px]">
+            ×
+          </Link>
+        </div>
+        <div className="px-5 pb-3 flex items-center gap-3">
+          <div className="flex-1 h-1.5 rounded-full bg-gray-100 overflow-hidden" role="progressbar" aria-valuemin={0} aria-valuemax={TOTAL} aria-valuenow={step}>
+            <div className="h-full rounded-full transition-all duration-300" style={{ width: `${(step / TOTAL) * 100}%`, background: GREEN }} />
+          </div>
+          <span className="text-[13px] font-bold tabular-nums" style={{ color: GREEN_DARK }}>
+            {Math.round((step / TOTAL) * 100)}%
+          </span>
         </div>
       </div>
 
-      {step < 6 && (
-        <div className="px-5 pt-3">
-          <div className="flex gap-1">
-            {[1, 2, 3, 4, 5].map(s => (
-              <div key={s} className={`h-1 flex-1 rounded-full ${s <= step ? 'bg-[#0A8A7B]' : 'bg-gray-100'}`} />
-            ))}
-          </div>
-        </div>
-      )}
+      <div className="px-5 pt-4">
+        <h1 className="text-[24px] font-extrabold text-gray-900 leading-snug whitespace-pre-line">{TITLES[step]}</h1>
 
-      <div className="px-5 py-6">
+        {/* 1. 운동 지도 분야 */}
         {step === 1 && (
-          <div className="space-y-5">
-            <div className="rounded-2xl p-4 bg-[#E8F6F4]">
-              <p className="text-[15px] font-bold text-[#067A6C]">🛡️ 물리치료사 면허 소지자만 가입해요</p>
-              <p className="text-[13px] text-gray-600 mt-1 leading-relaxed">
-                운동센터를 운영하거나 소속된 분, 프리랜서로 방문하실 분, 육아·본업과 함께 짧게 활동하실 분 모두 환영해요.
-              </p>
-            </div>
-            <div>
-              <label className="text-sm font-bold text-gray-700 block mb-2">이름 *</label>
-              <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="실명 입력" className="w-full p-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#0A8A7B]" />
-            </div>
-            <div>
-              <label className="text-sm font-bold text-gray-700 block mb-2">물리치료사 면허번호 *</label>
-              <input type="text" value={licenseNumber} onChange={(e) => setLicenseNumber(e.target.value)} placeholder="예: 12345" className="w-full p-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#0A8A7B]" />
-              <p className="text-xs text-gray-400 mt-2">🛡️ 면허번호는 공개되지 않고, 면허 확인에만 쓰여요</p>
-            </div>
-            <div>
-              <label className="text-sm font-bold text-gray-700 block mb-2">경력 (년) *</label>
-              <input type="number" value={yearsExperience} onChange={(e) => setYearsExperience(Number(e.target.value))} min="0" className="w-full p-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#0A8A7B]" />
-            </div>
-            <div>
-              <label className="text-sm font-bold text-gray-700 block mb-2">연락처 *</label>
-              <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="010-0000-0000" className="w-full p-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#0A8A7B]" />
-              <p className="text-xs text-gray-400 mt-2">* 보호자에게 공개되지 않으며, 승인 안내에만 쓰여요</p>
-            </div>
-
-            <div className="pt-2 border-t border-gray-100">
-              <p className="text-sm font-bold text-gray-900 mb-1 pt-4">로그인 정보</p>
-              <p className="text-xs text-gray-400 mb-4 leading-relaxed">
-                프로필 수정과 방문 요청 확인에 사용할 계정이에요
-              </p>
-
-              <div className="space-y-4">
-                <div>
-                  <label className="text-sm font-bold text-gray-700 block mb-2">이메일 *</label>
-                  <input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="example@email.com"
-                    autoComplete="email"
-                    className="w-full p-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#0A8A7B]"
-                  />
-                  {email.length > 0 && !emailValid && (
-                    <p className="text-xs text-red-400 mt-1.5">이메일 형식을 확인해주세요</p>
-                  )}
-                </div>
-
-                <div>
-                  <label className="text-sm font-bold text-gray-700 block mb-2">비밀번호 *</label>
-                  <input
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="8자 이상"
-                    autoComplete="new-password"
-                    className="w-full p-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#0A8A7B]"
-                  />
-                  {password.length > 0 && !passwordValid && (
-                    <p className="text-xs text-red-400 mt-1.5">8자 이상 입력해주세요</p>
-                  )}
-                </div>
-
-                <div>
-                  <label className="text-sm font-bold text-gray-700 block mb-2">비밀번호 확인 *</label>
-                  <input
-                    type="password"
-                    value={passwordConfirm}
-                    onChange={(e) => setPasswordConfirm(e.target.value)}
-                    placeholder="다시 한 번 입력"
-                    autoComplete="new-password"
-                    className="w-full p-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#0A8A7B]"
-                  />
-                  {passwordConfirm.length > 0 && !passwordMatch && (
-                    <p className="text-xs text-red-400 mt-1.5">비밀번호가 일치하지 않아요</p>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {step === 2 && (
-          <div className="space-y-6">
-            <div>
-              <label className="text-sm font-bold text-gray-700 block mb-1">어떤 형태로 활동하세요? *</label>
-              <p className="text-xs text-gray-400 mb-3">해당하는 것을 모두 골라 주세요</p>
-              <div className="space-y-2">
-                {WORK_TYPES.map(w => {
-                  const on = workTypes.includes(w.value)
-                  return (
-                    <button key={w.value} type="button" onClick={() => toggleWorkType(w.value)} aria-pressed={on}
-                      className={'w-full min-h-[64px] p-4 rounded-xl text-left flex items-center gap-3 border-2 transition-all ' +
-                        (on ? 'border-[#0A8A7B] bg-[#E8F6F4]' : 'border-gray-100 bg-gray-50')}>
-                      <span className="flex-1 min-w-0">
-                        <span className={'block font-bold ' + (on ? 'text-[#067A6C]' : 'text-gray-800')}>{w.label}</span>
-                        <span className="block text-xs text-gray-500 mt-0.5">{w.desc}</span>
+          <div className="mt-5">
+            <p className="text-[15px] text-gray-500 mb-4">해당하는 분야를 모두 골라 주세요. 보호자 검색에 이 분야로 나와요.</p>
+            <div className="flex flex-col gap-2">
+              {PURPOSE_OPTIONS.map((p) => {
+                const on = purposes.includes(p)
+                return (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => toggle(purposes, setPurposes, p)}
+                    aria-pressed={on}
+                    className="w-full min-h-[60px] px-4 py-3 rounded-2xl border-2 text-left flex items-center gap-3"
+                    style={on ? { borderColor: GREEN, background: GREEN_LIGHT } : { borderColor: '#EEF0F2', background: '#fff' }}
+                  >
+                    <span className="flex-1 min-w-0">
+                      <span className="block text-[17px] font-bold" style={{ color: on ? GREEN_DARK : '#1F2937' }}>
+                        {p}
                       </span>
-                      <span className={'w-6 h-6 rounded-full flex items-center justify-center text-xs shrink-0 ' +
-                        (on ? 'bg-[#0A8A7B] text-white' : 'bg-white border border-gray-200 text-transparent')}>✓</span>
+                      {PURPOSE_INFO[p] && <span className="block text-[13px] text-gray-500 mt-0.5 leading-snug">{PURPOSE_INFO[p]}</span>}
+                    </span>
+                    <span
+                      aria-hidden="true"
+                      className="w-6 h-6 rounded-md shrink-0 flex items-center justify-center text-[13px] font-bold"
+                      style={on ? { background: GREEN, color: '#fff' } : { border: '2px solid #D1D5DB', color: 'transparent' }}
+                    >
+                      ✓
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setShowBodyParts((v) => !v)}
+              aria-expanded={showBodyParts}
+              className="mt-5 min-h-[48px] text-[15px] font-semibold"
+              style={{ color: GREEN_DARK }}
+            >
+              전문 부위도 고르기 (선택) {showBodyParts ? '▴' : '▾'}
+            </button>
+            {showBodyParts && (
+              <div className="flex flex-wrap gap-2 mt-2">
+                {BODY_PART_OPTIONS.map((b) => {
+                  const on = bodyParts.includes(b)
+                  return (
+                    <button
+                      key={b}
+                      type="button"
+                      onClick={() => toggle(bodyParts, setBodyParts, b)}
+                      aria-pressed={on}
+                      className="min-h-[44px] px-4 rounded-full text-[15px] font-semibold border"
+                      style={on ? { background: GREEN, borderColor: GREEN, color: '#fff' } : { background: '#fff', borderColor: '#E5E7EB', color: '#4B5563' }}
+                    >
+                      {b}
                     </button>
                   )
                 })}
               </div>
-              {workTypes.length > 0 && !hasPlaceWork(workTypes) && (
-                <p className="text-xs text-red-400 mt-2">운영·소속·방문 중 하나는 꼭 골라 주세요</p>
-              )}
-            </div>
-
-            {hasCenter && (
-              <div>
-                <label className="text-sm font-bold text-gray-700 block mb-2">운동센터 이름 *</label>
-                <input type="text" value={studioName} onChange={(e) => setStudioName(e.target.value)} maxLength={40} placeholder="예: 바른걸음 운동센터" className="w-full p-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#0A8A7B]" />
-              </div>
             )}
 
-            {canVisit && (
-              <div>
-                <label className="text-sm font-bold text-gray-700 block mb-3">방문 가능 범위 *</label>
-                <div className="flex flex-wrap gap-2">
-                  {VISIT_RADIUS_OPTIONS.map(km => (
-                    <button key={km} type="button" onClick={() => setVisitRadius(km)}
-                      className={'px-4 py-2.5 rounded-full text-sm font-semibold transition-all ' + (visitRadius === km ? 'bg-[#0A8A7B] text-white' : 'bg-gray-50 text-gray-500 border border-gray-100')}>
-                      {km}km 이내
+            {purposes.length > 0 && (
+              <div className="mt-6 rounded-2xl bg-gray-50 p-4">
+                <p className="text-[14px] font-bold text-gray-700">
+                  선택한 분야 <span style={{ color: GREEN_DARK }}>{purposes.length}</span>/{PURPOSE_OPTIONS.length}
+                </p>
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                  {purposes.map((p) => (
+                    <button
+                      key={p}
+                      type="button"
+                      onClick={() => toggle(purposes, setPurposes, p)}
+                      className="min-h-[36px] pl-3 pr-2 rounded-full bg-gray-800 text-white text-[13px] font-semibold flex items-center gap-1"
+                      aria-label={`${p} 빼기`}
+                    >
+                      {p} <span aria-hidden="true">×</span>
                     </button>
                   ))}
                 </div>
-                <p className="text-xs text-gray-400 mt-2">📍 아래 주소에서 이 거리 안에 사는 보호자에게 보여요</p>
               </div>
             )}
+          </div>
+        )}
 
-            {workTypes.length > 0 && (
-              <div className="p-3 rounded-xl bg-amber-50 border border-amber-100">
-                <p className="text-xs text-amber-800 leading-relaxed">
-                  ⚠️ 이 서비스는 <b>운동 지도</b>예요. 방문·운동센터 모두 도수·기기 치료 같은 의료행위는 할 수 없어요.
-                </p>
-              </div>
+        {/* 2. 활동 형태 */}
+        {step === 2 && (
+          <div className="mt-5">
+            <p className="text-[15px] text-gray-500 mb-4">해당하는 것을 모두 골라 주세요.</p>
+            <div className="flex flex-col gap-2">
+              {WORK_TYPES.map((w) => {
+                const on = workTypes.includes(w.value)
+                return (
+                  <button
+                    key={w.value}
+                    type="button"
+                    onClick={() => toggle(workTypes, setWorkTypes, w.value)}
+                    aria-pressed={on}
+                    className="w-full min-h-[64px] px-4 py-3 rounded-2xl border-2 text-left flex items-center gap-3"
+                    style={on ? { borderColor: GREEN, background: GREEN_LIGHT } : { borderColor: '#EEF0F2', background: '#fff' }}
+                  >
+                    <span className="flex-1 min-w-0">
+                      <span className="block text-[17px] font-bold" style={{ color: on ? GREEN_DARK : '#1F2937' }}>
+                        {w.label}
+                      </span>
+                      <span className="block text-[13px] text-gray-500 mt-0.5">{w.desc}</span>
+                    </span>
+                    <span
+                      aria-hidden="true"
+                      className="w-6 h-6 rounded-md shrink-0 flex items-center justify-center text-[13px] font-bold"
+                      style={on ? { background: GREEN, color: '#fff' } : { border: '2px solid #D1D5DB', color: 'transparent' }}
+                    >
+                      ✓
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+            {workTypes.length > 0 && !hasPlaceWork(workTypes) && (
+              <p className="text-[14px] text-red-500 mt-3">운영·소속·방문 중 하나는 꼭 골라 주세요.</p>
             )}
-
-            {hasPlaceWork(workTypes) && (
-            <div>
-              <label className="text-sm font-bold text-gray-700 block mb-2">
-                {canVisit ? '활동 기준 주소' : '운동센터 주소'}
-              </label>
-              <div className="flex gap-2 mb-2">
+            {hasCenter && (
+              <div className="mt-5">
+                <label htmlFor="studio" className="text-[15px] font-bold text-gray-800 block mb-2">
+                  운동센터 이름
+                </label>
                 <input
+                  id="studio"
                   type="text"
-                  value={address}
-                  onChange={(e) => { setAddress(e.target.value); setAddressResult(null) }}
-                  onKeyDown={(e) => e.key === 'Enter' && handleAddressSearch()}
-                  placeholder="예: 서울시 강남구 테헤란로 123"
-                  className="flex-1 p-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#0A8A7B]"
+                  value={studioName}
+                  onChange={(e) => setStudioName(e.target.value)}
+                  maxLength={40}
+                  placeholder="예: 바른걸음 운동센터"
+                  className="w-full min-h-[52px] px-4 border border-gray-200 rounded-xl text-[16px] focus:outline-none focus:border-[#0A8A7B]"
                 />
-                <button
-                  type="button"
-                  onClick={handleAddressSearch}
-                  disabled={addressLoading || !address.trim()}
-                  className="px-4 py-3 bg-[#0A8A7B] text-white rounded-xl text-sm font-bold shrink-0 disabled:bg-gray-200 disabled:text-gray-400"
-                >
-                  {addressLoading ? '검색 중' : '검색'}
-                </button>
               </div>
-
-              {addressResult && (
-                <div className="bg-green-50 border border-green-200 rounded-xl p-3">
-                  <p className="text-xs font-bold text-green-700 mb-1">✅ 위치 확인됨</p>
-                  <p className="text-xs text-green-600">{addressResult.address}</p>
-                </div>
-              )}
-
-              {addressError && (
-                <div className="bg-red-50 border border-red-200 rounded-xl p-3">
-                  <p className="text-xs text-red-600">{addressError}</p>
-                </div>
-              )}
-
-              <p className="text-xs text-gray-400 mt-2 leading-relaxed">
-                {canVisit
-                  ? '📍 방문 범위를 재는 기준점이에요 (집·사무실 주소도 괜찮아요). 넣지 않으면 ‘집으로 방문’ 검색에 나오지 않아요'
-                  : '📍 넣으면 가까운 보호자에게 거리순으로 보여요 (선택)'}
+            )}
+            <div className="mt-5 p-4 rounded-2xl bg-amber-50 border border-amber-100">
+              <p className="text-[14px] text-amber-800 leading-relaxed">
+                ⚠️ 이 서비스는 <b>운동 지도</b>예요. 방문·운동센터 모두 도수·기기 치료 같은 의료행위는 할 수 없어요.
               </p>
             </div>
+          </div>
+        )}
+
+        {/* 3. 활동 지역 + 이동 가능 거리 */}
+        {step === 3 && (
+          <div className="mt-5">
+            <p className="text-[15px] text-gray-500 mb-4">
+              {canVisit ? '방문 거리를 재는 기준 주소예요. 집·센터 주소 모두 괜찮아요.' : '운동센터 주소를 넣으면 가까운 보호자에게 거리순으로 보여요. (선택)'}
+            </p>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={address}
+                onChange={(e) => {
+                  setAddress(e.target.value)
+                  setAddressResult(null)
+                }}
+                onKeyDown={(e) => e.key === 'Enter' && searchAddress()}
+                placeholder="예: 하남시 신장로 101"
+                aria-label="활동 기준 주소"
+                className="flex-1 min-w-0 min-h-[52px] px-4 border border-gray-200 rounded-xl text-[16px] focus:outline-none focus:border-[#0A8A7B]"
+              />
+              <button
+                type="button"
+                onClick={searchAddress}
+                disabled={addressLoading || !address.trim()}
+                className="min-h-[52px] px-5 rounded-xl text-[16px] font-bold text-white shrink-0 disabled:bg-gray-200 disabled:text-gray-400"
+                style={{ background: addressLoading || !address.trim() ? undefined : GREEN }}
+              >
+                {addressLoading ? '찾는 중' : '찾기'}
+              </button>
+            </div>
+            {addressResult && (
+              <div className="mt-3 rounded-xl p-4 border" style={{ background: GREEN_LIGHT, borderColor: '#BFE3DC' }}>
+                <p className="text-[14px] font-bold" style={{ color: GREEN_DARK }}>
+                  📍 위치를 확인했어요
+                </p>
+                <p className="text-[15px] text-gray-700 mt-0.5">{addressResult.address}</p>
+              </div>
+            )}
+            {addressError && <p className="text-[14px] text-red-500 mt-3">{addressError}</p>}
+            <p className="text-[13px] text-gray-400 mt-3">주소는 공개되지 않고, 거리 계산에만 쓰여요.</p>
+
+            {canVisit && (
+              <div className="mt-8">
+                <div className="flex items-center justify-between">
+                  <p className="text-[16px] font-bold text-gray-800">이동 가능 거리</p>
+                  <p className="text-[18px] font-extrabold" style={{ color: GREEN_DARK }}>
+                    {radius}km 이내
+                  </p>
+                </div>
+                <input
+                  type="range"
+                  min={0}
+                  max={VISIT_RADIUS_OPTIONS.length - 1}
+                  step={1}
+                  value={radiusIndex}
+                  onChange={(e) => setRadiusIndex(Number(e.target.value))}
+                  aria-label="이동 가능 거리"
+                  aria-valuetext={`${radius}km 이내`}
+                  className="w-full mt-4 accent-[#0A8A7B] h-8"
+                />
+                <div className="flex justify-between text-[13px] text-gray-400 mt-1">
+                  {VISIT_RADIUS_OPTIONS.map((km) => (
+                    <span key={km}>{km}km</span>
+                  ))}
+                </div>
+                <p className="text-[14px] text-gray-500 mt-3">이 거리 안에 사는 보호자에게 &lsquo;집으로 방문&rsquo; 전문가로 보여요.</p>
+              </div>
             )}
           </div>
         )}
 
-        {step === 3 && (
-          <div className="space-y-6">
-            <div>
-              <label className="text-sm font-bold text-gray-700 block mb-3">전문 부위 <span className="text-xs text-gray-400 font-normal">(선택 · 복수 선택)</span></label>
-              <p className="text-xs text-gray-400 -mt-1 mb-3">신경계 재활처럼 특정 부위가 아니라면 건너뛰어도 괜찮아요</p>
-              <div className="flex flex-wrap gap-2">
-                {BODY_PART_OPTIONS.map(part => (
-                  <button key={part} onClick={() => toggleBodyPart(part)}
-                    className={'px-4 py-2.5 rounded-full text-sm font-semibold transition-all ' + (selectedBodyParts.includes(part) ? 'bg-[#0A8A7B] text-white' : 'bg-gray-50 text-gray-500 border border-gray-100')}>
-                    {part}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div>
-              <label className="text-sm font-bold text-gray-700 block mb-3">운동 지도 분야 * <span className="text-xs text-gray-400 font-normal">(복수 선택)</span></label>
-              <div className="flex flex-wrap gap-2">
-                {PURPOSE_OPTIONS.map(purpose => (
-                  <button key={purpose} type="button" onClick={() => togglePurpose(purpose)}
-                    className={'px-4 py-2.5 rounded-full text-sm font-semibold transition-all ' +
-                      (selectedPurposes.includes(purpose) ? 'bg-[#0A8A7B] text-white' : 'bg-gray-50 text-gray-500 border border-gray-100')}>
-                    {purpose}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div>
-              <label className="text-sm font-bold text-gray-700 block mb-3">자격증 <span className="text-xs text-gray-400 font-normal">(선택 · 복수 선택)</span></label>
-              <div className="flex flex-wrap gap-2">
-                {CERTIFICATION_OPTIONS.map(cert => (
-                  <button key={cert} onClick={() => toggleCert(cert)}
-                    className={'px-3 py-2 rounded-full text-xs font-semibold transition-all ' + (selectedCerts.includes(cert) ? 'bg-[#0A8A7B] text-white' : 'bg-gray-50 text-gray-500 border border-gray-100')}>
-                    {cert}
-                  </button>
-                ))}
-              </div>
-              <p className="text-xs text-gray-400 mt-2">🏅 보유한 자격증을 선택하면 프로필에 표시됩니다. 가입 후 마이페이지에서도 수정할 수 있어요.</p>
-            </div>
-          </div>
-        )}
-
+        {/* 4. 기본 정보 (비공개) */}
         {step === 4 && (
-          <div>
-            <p className="text-sm font-bold text-gray-700 mb-1">언제 매칭이 가능하세요? *</p>
-            <p className="text-xs text-gray-400 mb-5 leading-relaxed">
-              가능한 요일과 시간대를 모두 선택해주세요.<br />
-              보호자에게 이 일정이 보이고, 가입 후에도 언제든 바꿀 수 있어요.
-            </p>
-
-            <div className="border border-gray-100 rounded-2xl overflow-hidden">
-              <div className="grid grid-cols-4 bg-gray-50">
-                <div className="p-2.5 text-xs font-bold text-gray-400">요일</div>
-                {SLOTS.map(s => (
-                  <div key={s.value} className="p-2.5 text-center">
-                    <div className="text-xs font-bold text-gray-600">{s.label}</div>
-                    <div className="text-[10px] text-gray-400">{s.desc}</div>
-                  </div>
-                ))}
-              </div>
-              {DAYS.map(day => (
-                <div key={day.value} className="grid grid-cols-4 border-t border-gray-100">
-                  <div className="p-2.5 flex items-center">
-                    <span className={'text-sm font-bold ' + (day.value === 0 ? 'text-red-400' : day.value === 6 ? 'text-blue-400' : 'text-gray-700')}>
-                      {day.label}
-                    </span>
-                  </div>
-                  {SLOTS.map(s => {
-                    const active = availability.includes(`${day.value}-${s.value}`)
-                    return (
-                      <button
-                        key={s.value}
-                        onClick={() => toggleSlot(day.value, s.value)}
-                        className="p-2.5 flex items-center justify-center border-l border-gray-100"
-                      >
-                        <span className={'w-7 h-7 rounded-lg flex items-center justify-center text-sm transition-all ' +
-                          (active ? 'bg-[#0A8A7B] text-white font-bold' : 'bg-gray-50 text-gray-300')}>
-                          {active ? '✓' : ''}
-                        </span>
-                      </button>
-                    )
-                  })}
-                </div>
-              ))}
+          <div className="mt-5 space-y-5">
+            <div className="rounded-2xl p-4" style={{ background: GREEN_LIGHT }}>
+              <p className="text-[15px] font-bold" style={{ color: GREEN_DARK }}>
+                🛡️ 물리치료사 면허 소지자만 가입할 수 있어요
+              </p>
+              <p className="text-[14px] text-gray-600 mt-1 leading-relaxed">운영팀이 면허를 확인한 뒤 프로필을 공개해요. 면허번호·휴대폰은 공개되지 않아요.</p>
             </div>
-
-            <div className="flex gap-2 mt-4">
-              <button
-                onClick={() => setAvailability(DAYS.filter(d => d.value >= 1 && d.value <= 5).map(d => `${d.value}-morning`))}
-                className="flex-1 py-2.5 rounded-xl text-xs font-semibold bg-gray-50 text-gray-600 border border-gray-100"
-              >
-                평일 오전 전체
-              </button>
-              <button
-                onClick={() => setAvailability(DAYS.filter(d => d.value >= 1 && d.value <= 5).map(d => `${d.value}-afternoon`))}
-                className="flex-1 py-2.5 rounded-xl text-xs font-semibold bg-gray-50 text-gray-600 border border-gray-100"
-              >
-                평일 오후 전체
-              </button>
-              <button
-                onClick={() => setAvailability([])}
-                className="px-4 py-2.5 rounded-xl text-xs font-semibold bg-gray-50 text-gray-400 border border-gray-100"
-              >
-                초기화
-              </button>
-            </div>
-
-            <p className="text-xs text-gray-400 mt-3 text-center">
-              {availability.length > 0 ? `${availability.length}개 시간대 선택됨` : '최소 1개 이상 선택해주세요'}
-            </p>
+            <Field label="이름 (실명)" hint="면허에 적힌 이름과 같아야 해요">
+              <input type="text" value={name} onChange={(e) => setName(e.target.value)} maxLength={20} placeholder="홍길동" autoComplete="name" className={inputCls} />
+            </Field>
+            <Field label="물리치료사 면허번호">
+              <input type="text" inputMode="numeric" value={licenseNumber} onChange={(e) => setLicenseNumber(e.target.value)} maxLength={20} placeholder="예: 12345" className={inputCls} />
+            </Field>
+            <Field label="경력 (년)">
+              <input type="number" inputMode="numeric" min={0} max={60} value={years} onChange={(e) => setYears(e.target.value)} placeholder="예: 8" className={inputCls} />
+            </Field>
+            <Field label="휴대폰 번호" hint="승인 안내 문자에만 써요">
+              <input type="tel" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="010-0000-0000" autoComplete="tel" className={inputCls} />
+              {phone.trim() !== '' && !/^01\d{8,9}$/.test(phoneDigits) && <p className="text-[13px] text-red-500 mt-1.5">휴대폰 번호를 확인해 주세요.</p>}
+            </Field>
           </div>
         )}
 
+        {/* 5. 동의 */}
         {step === 5 && (
-          <div className="space-y-5">
-            <div>
-              <label className="text-sm font-bold text-gray-700 block mb-2">카카오톡 오픈채팅 링크 *</label>
-              <input type="text" value={kakaoLink} onChange={(e) => setKakaoLink(e.target.value)} placeholder="https://open.kakao.com/o/..." className="w-full p-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#0A8A7B]" />
-              {kakaoLink.trim() !== '' && !kakaoValid ? (
-                <p className="text-xs text-red-500 mt-2">카카오 오픈채팅 주소(https://open.kakao.com/...)를 넣어 주세요</p>
-              ) : (
-                <p className="text-xs text-gray-400 mt-2">보호자가 상담을 원하면 이 링크로 연결돼요 (전화번호는 공개되지 않아요)</p>
-              )}
-            </div>
-            <div>
-              <label className="text-sm font-bold text-gray-700 block mb-2">자기소개 * <span className="text-xs text-gray-400 font-normal">(최소 30자)</span></label>
-              <textarea value={intro} onChange={(e) => setIntro(e.target.value)} placeholder="보호자에게 보여질 소개예요. 경력, 자신 있는 운동 지도, 진행 방식을 적어 주세요." rows={6} className="w-full p-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#0A8A7B] resize-none" />
-              <p className="text-xs text-gray-400 mt-2 text-right">{intro.length} / 최소 30자</p>
-              {introBanned ? (
-                <p className="text-xs text-red-500 mt-1 leading-relaxed">{bannedMessage(introBanned)}</p>
-              ) : (
-                <p className="text-xs text-gray-400 mt-1 leading-relaxed">&lsquo;치료·완치·효과 보장&rsquo; 같은 표현은 쓸 수 없어요</p>
-              )}
-            </div>
-
-            {/* 개인정보 동의 */}
+          <div className="mt-5">
             <div className="rounded-2xl border border-gray-200 overflow-hidden">
               <button
                 type="button"
-                onClick={toggleAll}
-                className="w-full flex items-center gap-3 p-4 text-left"
-                style={{ background: allAgreed ? '#E8F6F4' : '#F9FAFB' }}
+                onClick={() => {
+                  const v = !allAgreed
+                  setAgreeCollect(v)
+                  setAgreePublic(v)
+                  setAgreeRules(v)
+                }}
+                className="w-full flex items-center gap-3 p-4 text-left min-h-[60px]"
+                style={{ background: allAgreed ? GREEN_LIGHT : '#F9FAFB' }}
               >
-                <span
-                  className="w-6 h-6 rounded-md flex items-center justify-center text-white text-sm shrink-0"
-                  style={{ background: allAgreed ? '#0A8A7B' : '#D1D5DB' }}
-                >
+                <span className="w-6 h-6 rounded-md flex items-center justify-center text-white text-sm shrink-0" style={{ background: allAgreed ? GREEN : '#D1D5DB' }}>
                   ✓
                 </span>
-                <span className="text-[16px] font-bold text-gray-900">아래 내용에 모두 동의해요</span>
+                <span className="text-[17px] font-bold text-gray-900">모두 동의해요</span>
               </button>
               <div className="p-4 space-y-4 border-t border-gray-100">
-                <ConsentRow
+                <Consent
                   checked={agreeCollect}
                   onChange={setAgreeCollect}
-                  title="[필수] 개인정보 수집·이용"
-                  lines={[
-                    '항목: 이름·이메일·휴대폰·면허번호',
-                    '경력·활동 정보·소개·사진·시간',
-                    '목적: 면허 확인, 프로필, 안내 문자',
-                    '보관: 탈퇴 시까지',
-                  ]}
+                  title="[필수] 전문가 개인정보 수집·이용"
+                  lines={['항목: 이름·휴대폰·면허번호·경력, 활동 형태·지역·좌표, 소개·사진·자격·가능한 시간', '목적: 면허 확인, 프로필 공개, 승인 안내 문자', '보관: 전문가 탈퇴 시까지']}
                 />
-                <ConsentRow
+                <Consent
                   checked={agreePublic}
                   onChange={setAgreePublic}
                   title="[필수] 프로필 공개"
-                  lines={[
-                    '공개: 이름·경력·활동 형태·센터·지역',
-                    '전문 분야·소개·자격증·사진·시간',
-                    '공개: 카카오 오픈채팅 링크',
-                    '비공개: 이메일·휴대폰·면허번호',
-                  ]}
+                  lines={['공개: 이름·경력·활동 형태·센터·분야·소개·자격·사진·시간·오픈채팅 주소', '비공개: 휴대폰·면허번호·이메일·주소']}
                 />
-                <ConsentRow
-                  checked={agreeRules}
-                  onChange={setAgreeRules}
-                  title="[필수] 활동 원칙 확인"
-                  lines={PRACTICE_RULES}
-                />
-                <p className="text-[13px] text-gray-500 leading-relaxed">
-                  동의하지 않으실 수 있지만, 이 경우 가입할 수 없어요.{' '}
-                  <a href="/privacy" target="_blank" rel="noopener noreferrer" className="underline">
-                    개인정보처리방침 보기
-                  </a>
-                </p>
+                <Consent checked={agreeRules} onChange={setAgreeRules} title="[필수] 활동 원칙 확인" lines={PRACTICE_RULES} />
               </div>
             </div>
-          </div>
-        )}
-
-        {step === 6 && (
-          <div className="text-center py-12">
-            <div className="text-6xl mb-6">🎉</div>
-            <h2 className="text-xl font-extrabold text-gray-900 mb-3">가입 신청 완료!</h2>
-            <p className="text-sm text-gray-500 leading-relaxed mb-8">
-              {name}님의 신청이 접수되었어요.<br />
-              면허 확인이 끝나면<br />
-              연락처({phone})로 안내드릴게요.
+            <p className="text-[14px] text-gray-500 mt-3 leading-relaxed">
+              동의하지 않으면 전문가로 가입할 수 없어요.{' '}
+              <Link href="/privacy" target="_blank" className="underline">
+                개인정보처리방침
+              </Link>
             </p>
-
-            {needsEmailConfirm && (
-              <div className="bg-amber-50 border border-amber-100 rounded-2xl p-4 mb-6 text-left">
-                <p className="text-sm font-bold text-amber-800 mb-1">📧 이메일 확인이 필요해요</p>
-                <p className="text-xs text-amber-700 leading-relaxed">
-                  {email.trim()} 으로 확인 메일을 보냈어요.
-                  메일의 링크를 눌러야 로그인할 수 있습니다.
-                  메일이 안 보이면 스팸함도 확인해주세요.
-                </p>
-              </div>
-            )}
-            <div className="bg-[#E8F6F4] rounded-2xl p-5 mb-8 text-left">
-              <p className="text-sm font-bold text-[#067A6C] mb-2">📋 다음 단계</p>
-              <ol className="text-sm text-gray-700 space-y-1.5 list-decimal list-inside">
-                <li>운영팀이 면허번호를 확인하고 검토합니다</li>
-                <li>승인 완료 시 등록하신 연락처로 안내 문자가 발송됩니다</li>
-                <li>승인 후 검색 결과에 프로필이 노출됩니다</li>
-                <li>MY에서 &lsquo;질문답변&rsquo;을 채워 두면 보호자가 더 편하게 연락해요</li>
-              </ol>
-            </div>
-            <button onClick={() => router.push('/')} className="px-8 py-3 bg-[#0A8A7B] text-white rounded-xl font-semibold">홈으로</button>
+            {submitError && <p className="text-[15px] text-red-500 mt-3">{submitError}</p>}
           </div>
         )}
       </div>
 
-      {step < 6 && (
-        <div className="fixed bottom-0 left-0 right-0 max-w-md mx-auto px-5 py-4 bg-white border-t border-gray-100">
-          {step < 5 ? (
-            <button
-              onClick={() => setStep(step + 1)}
-              disabled={
-                (step === 1 && !canProceedStep1) ||
-                (step === 2 && !canProceedStep2) ||
-                (step === 3 && !canProceedStep3) ||
-                (step === 4 && !canProceedStep4)
-              }
-              className={'w-full py-4 rounded-2xl text-base font-bold transition-all ' +
-                (((step === 1 && canProceedStep1) ||
-                  (step === 2 && canProceedStep2) ||
-                  (step === 3 && canProceedStep3) ||
-                  (step === 4 && canProceedStep4))
-                  ? 'bg-[#0A8A7B] text-white active:scale-[0.98]'
-                  : 'bg-gray-100 text-gray-300 cursor-not-allowed')}
-            >
-              다음
-            </button>
-          ) : (
-            <button
-              onClick={handleSubmit}
-              disabled={!canSubmit || submitting}
-              className={'w-full py-4 rounded-2xl text-base font-bold transition-all ' + (canSubmit && !submitting ? 'bg-[#0A8A7B] text-white active:scale-[0.98]' : 'bg-gray-100 text-gray-300 cursor-not-allowed')}
-            >
-              {submitting ? '신청 중...' : '가입 신청하기'}
-            </button>
-          )}
+      <div className="fixed bottom-0 inset-x-0 z-20">
+        <div className="max-w-md mx-auto px-5 py-4 bg-white border-t border-gray-100">
+          <button
+            type="button"
+            onClick={() => (step < TOTAL ? setStep(step + 1) : submit())}
+            disabled={!canNext[step] || submitting}
+            className="w-full min-h-[56px] rounded-2xl text-[17px] font-bold text-white transition-all active:scale-[0.99]"
+            style={{ background: canNext[step] && !submitting ? GREEN : '#B8D9D4' }}
+          >
+            {step < TOTAL ? '다음' : submitting ? '신청하는 중...' : '전문가 가입 신청하기'}
+          </button>
         </div>
-      )}
+      </div>
     </main>
   )
 }
 
-function ConsentRow({
-  checked,
-  onChange,
-  title,
-  lines,
-}: {
-  checked: boolean
-  onChange: (v: boolean) => void
-  title: string
-  lines: string[]
-}) {
+const inputCls = 'w-full min-h-[52px] px-4 border border-gray-200 rounded-xl text-[16px] focus:outline-none focus:border-[#0A8A7B]'
+
+function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <p className="text-[15px] font-bold text-gray-800 mb-2">
+        {label} {hint && <span className="text-[13px] font-normal text-gray-400">· {hint}</span>}
+      </p>
+      {children}
+    </div>
+  )
+}
+
+function Consent({ checked, onChange, title, lines }: { checked: boolean; onChange: (v: boolean) => void; title: string; lines: string[] }) {
   return (
     <label className="flex gap-3 cursor-pointer">
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={(e) => onChange(e.target.checked)}
-        className="w-6 h-6 mt-0.5 shrink-0 accent-[#0A8A7B]"
-      />
+      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} className="w-6 h-6 mt-0.5 shrink-0 accent-[#0A8A7B]" />
       <span className="min-w-0">
-        <span className="block text-[15px] font-bold text-gray-900 mb-1">{title}</span>
-        {lines.map((line) => (
-          <span key={line} className="block text-[13px] text-gray-500 leading-relaxed">
-            · {line}
+        <span className="block text-[16px] font-bold text-gray-900">{title}</span>
+        {lines.map((l) => (
+          <span key={l} className="block text-[14px] text-gray-500 leading-relaxed mt-0.5">
+            · {l}
           </span>
         ))}
       </span>
     </label>
+  )
+}
+
+/** 가입 신청 뒤 — 프로필 작성 안내 (숨고 '프로필 작성 Tip' 참고) */
+function ProfileTips({ name }: { name: string }) {
+  const tips = [
+    { n: '01', title: '얼굴이 보이는 사진 + 대표 사진 3장', body: '보호자는 사진으로 첫인상을 정해요. 밝은 얼굴 사진, 운동 지도 모습·센터·도구 사진을 올려 주세요.' },
+    { n: '02', title: '구체적인 서비스 설명', body: '어떤 분을 주로 지도했는지, 첫 만남은 어떻게 진행하는지, 한 번에 몇 분 정도인지 적어 주세요.' },
+    { n: '03', title: '질문답변과 오픈채팅', body: '비용 안내·준비물 같은 자주 묻는 질문에 미리 답해 두면 보호자가 편하게 연락해요.' },
+  ]
+  return (
+    <main className="max-w-md mx-auto min-h-screen bg-white pb-28">
+      <section className="px-6 pt-14 pb-8" style={{ background: 'linear-gradient(180deg, #E8F6F4 0%, #fff 100%)' }}>
+        <p className="text-[28px] font-extrabold text-gray-900 leading-snug">
+          반가워요,
+          <br />
+          <span style={{ color: GREEN_DARK }}>{name} 전문가님</span> 👋
+        </p>
+        <p className="text-[17px] text-gray-600 mt-3 leading-relaxed">
+          가입 신청을 받았어요. 운영팀이 면허를 확인하는 동안 보호자가 보는 첫인상, 프로필을 완성해 주세요.
+        </p>
+      </section>
+
+      <section className="px-6">
+        <p className="text-[19px] font-extrabold text-gray-900">보호자가 연락하는 프로필은 달라요</p>
+        <div className="mt-4 space-y-3">
+          {tips.map((t) => (
+            <div key={t.n} className="rounded-2xl border border-gray-100 p-5">
+              <p className="text-[14px] font-extrabold" style={{ color: GREEN }}>
+                {t.n}
+              </p>
+              <p className="text-[18px] font-bold text-gray-900 mt-1">{t.title}</p>
+              <p className="text-[15px] text-gray-600 mt-1.5 leading-relaxed">{t.body}</p>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-6 rounded-2xl bg-gray-50 p-5">
+          <p className="text-[16px] font-bold text-gray-900">다음 순서</p>
+          <ol className="mt-2 space-y-1.5 text-[15px] text-gray-600 list-decimal list-inside leading-relaxed">
+            <li>운영팀이 물리치료사 면허를 확인해요</li>
+            <li>승인되면 입력한 휴대폰으로 안내 문자를 보내요</li>
+            <li>승인 뒤 보호자 검색에 프로필이 보여요</li>
+          </ol>
+        </div>
+      </section>
+
+      <div className="fixed bottom-0 inset-x-0 z-20">
+        <div className="max-w-md mx-auto px-5 py-4 bg-white border-t border-gray-100">
+          <Link
+            href="/mypage?edit=1"
+            className="w-full min-h-[56px] rounded-2xl text-[17px] font-bold text-white flex items-center justify-center"
+            style={{ background: GREEN }}
+          >
+            프로필 작성하기
+          </Link>
+        </div>
+      </div>
+    </main>
   )
 }

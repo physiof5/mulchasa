@@ -103,7 +103,8 @@ export default function SettingsPage() {
         <Row href="/find" icon="🔎" title="부모님 상황 맞춤 찾기" sub="상황을 고르면 맞는 운동 지도를 찾아 드려요" />
         <Row href="/request" icon="📝" title="방문 요청서 남기기" sub="운영자가 가까운 전문가를 연결해 드려요" />
         <Row href="/waitlist" icon="🔔" title="사전 신청" sub="오픈 소식을 가장 먼저 받아 보세요" />
-        <Row href="/mypage" icon="🧑‍⚕️" title="전문가 로그인·등록" sub="물리치료사 프로필 관리" />
+        <Row href="/register" icon="🧑‍⚕️" title="전문가로 가입하기" sub="물리치료사라면 카카오 로그인 뒤 전환해요" />
+        <Row href="/mypage" icon="🙋" title="로그인·마이페이지" sub="카카오로 3초 만에 시작" />
       </Group>
 
       <Group title="도움·정보">

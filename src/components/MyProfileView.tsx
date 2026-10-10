@@ -68,6 +68,7 @@ export default function MyProfileView({
     { label: '가능한 시간', done: availability.length > 0 },
     { label: '운동 지도 분야', done: purposes.length > 0 },
     { label: '질문답변 1개 이상', done: faqItems.length > 0 },
+    { label: '카카오 오픈채팅 주소', done: !!therapist.kakao_link },
   ]
   const doneCount = checklist.filter((c) => c.done).length
   const percent = Math.round((doneCount / checklist.length) * 100)
