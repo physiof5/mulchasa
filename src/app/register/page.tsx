@@ -9,6 +9,8 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { findMyTherapistId, useAuthUser } from '@/lib/auth'
+import { shrinkToJpeg } from '@/lib/squareImage'
+import AddressSearch, { type GeoResult } from '@/components/AddressSearch'
 import {
   WORK_TYPES, PURPOSE_OPTIONS, PURPOSE_INFO, BODY_PART_OPTIONS, PRACTICE_RULES,
   hasCenterWork, hasVisitWork, hasPlaceWork, deriveServiceMode,
@@ -42,15 +44,19 @@ export default function RegisterPage() {
   const [showBodyParts, setShowBodyParts] = useState(false)
   const [workTypes, setWorkTypes] = useState<string[]>([])
   const [studioName, setStudioName] = useState('')
-  const [address, setAddress] = useState('')
-  const [addressResult, setAddressResult] = useState<{ latitude: number; longitude: number; address: string } | null>(null)
-  const [addressLoading, setAddressLoading] = useState(false)
-  const [addressError, setAddressError] = useState('')
+  // 방문 기준 주소(집일 수 있어 비공개)와 운동센터 주소(센터 찾기 지도에 공개)를 따로 받는다
+  const [addressResult, setAddressResult] = useState<GeoResult | null>(null)
+  const [centerResult, setCenterResult] = useState<GeoResult | null>(null)
+  const [sameAsCenter, setSameAsCenter] = useState(true)
   const [radiusIndex, setRadiusIndex] = useState(2) // 10km
   const [name, setName] = useState('')
   const [licenseNumber, setLicenseNumber] = useState('')
   const [years, setYears] = useState('')
   const [phone, setPhone] = useState('')
+  // 면허증 사진 — 비공개 보관함(licenses)에만 올리고, 운영자 확인(승인·거부) 즉시 삭제
+  const [licenseBlob, setLicenseBlob] = useState<Blob | null>(null)
+  const [licensePreview, setLicensePreview] = useState<string | null>(null)
+  const [licenseError, setLicenseError] = useState('')
   const [agreeCollect, setAgreeCollect] = useState(false)
   const [agreePublic, setAgreePublic] = useState(false)
   const [agreeRules, setAgreeRules] = useState(false)
@@ -86,35 +92,44 @@ export default function RegisterPage() {
     1: purposes.length > 0,
     2: hasPlaceWork(workTypes) && (!hasCenter || studioName.trim().length > 0),
     // 방문은 기준 주소가 있어야 거리 검색에 나와서 필수, 센터만이면 선택
-    3: !canVisit || !!addressResult,
-    4: name.trim().length >= 2 && licenseNumber.trim().length >= 3 && years !== '' && yearsNum >= 0 && yearsNum <= 60 && /^01\d{8,9}$/.test(phoneDigits),
+    3: (!hasCenter || !!centerResult) && (!canVisit || (hasCenter && sameAsCenter ? !!centerResult : !!addressResult)),
+    4: name.trim().length >= 2 && licenseNumber.trim().length >= 3 && years !== '' && yearsNum >= 0 && yearsNum <= 60 && /^01\d{8,9}$/.test(phoneDigits) && !!licenseBlob,
     5: allAgreed,
   }
 
   const toggle = (list: string[], set: (v: string[]) => void, value: string) =>
     set(list.includes(value) ? list.filter((v) => v !== value) : [...list, value])
 
-  const searchAddress = async () => {
-    if (!address.trim()) return
-    setAddressLoading(true)
-    setAddressError('')
-    setAddressResult(null)
+  // 거리 검색 기준 좌표: 방문하면 방문 기준(또는 센터), 센터만이면 센터
+  const baseLocation: GeoResult | null = canVisit ? (hasCenter && sameAsCenter ? centerResult : addressResult) : centerResult
+
+  const pickLicense = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    setLicenseError('')
     try {
-      const res = await fetch(`/api/geocode?address=${encodeURIComponent(address)}`)
-      const data = await res.json()
-      if (res.ok) setAddressResult(data)
-      else setAddressError('주소를 찾지 못했어요. 도로명이나 동 이름까지 넣어 보세요.')
-    } catch {
-      setAddressError('주소를 찾는 중 문제가 생겼어요. 다시 시도해 주세요.')
-    } finally {
-      setAddressLoading(false)
+      const blob = await shrinkToJpeg(file)
+      setLicenseBlob(blob)
+      setLicensePreview(URL.createObjectURL(blob))
+    } catch (err) {
+      setLicenseError(err instanceof Error ? err.message : '사진을 넣지 못했어요.')
     }
   }
 
   const submit = async () => {
-    if (!user) return
+    if (!user || !licenseBlob) return
     setSubmitting(true)
     setSubmitError('')
+    // 1) 면허증 사진 먼저 비공개 보관함에 (본인 폴더)
+    const licensePath = licensePathFor(user.id)
+    const { error: upErr } = await supabase.storage.from('licenses').upload(licensePath, licenseBlob, { contentType: 'image/jpeg', upsert: false })
+    if (upErr) {
+      console.error('license upload error:', upErr)
+      setSubmitError('면허증 사진을 올리지 못했어요. 잠시 후 다시 시도해 주세요.')
+      setSubmitting(false)
+      return
+    }
     const phoneFormatted = phoneDigits.replace(/^(\d{3})(\d{3,4})(\d{4})$/, '$1-$2-$3')
     const { data: row, error } = await supabase
       .from('therapists')
@@ -135,10 +150,14 @@ export default function RegisterPage() {
         kakao_link: '',
         intro: '',
         verification_status: 'pending',
-        latitude: addressResult?.latitude ?? null,
-        longitude: addressResult?.longitude ?? null,
+        latitude: baseLocation?.latitude ?? null,
+        longitude: baseLocation?.longitude ?? null,
+        center_address: hasCenter ? centerResult?.address ?? null : null,
+        center_lat: hasCenter ? centerResult?.latitude ?? null : null,
+        center_lng: hasCenter ? centerResult?.longitude ?? null : null,
         certifications: [],
         consented_at: new Date().toISOString(),
+        license_photo_path: licensePath,
       })
       .select('id')
       .single()
@@ -367,42 +386,30 @@ export default function RegisterPage() {
         {/* 3. 활동 지역 + 이동 가능 거리 */}
         {step === 3 && (
           <div className="mt-5">
-            <p className="text-[15px] text-gray-500 mb-4">
-              {canVisit ? '방문 거리를 재는 기준 주소예요. 집·센터 주소 모두 괜찮아요.' : '운동센터 주소를 넣으면 가까운 보호자에게 거리순으로 보여요. (선택)'}
-            </p>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={address}
-                onChange={(e) => {
-                  setAddress(e.target.value)
-                  setAddressResult(null)
-                }}
-                onKeyDown={(e) => e.key === 'Enter' && searchAddress()}
-                placeholder="예: 하남시 신장로 101"
-                aria-label="활동 기준 주소"
-                className="flex-1 min-w-0 min-h-[52px] px-4 border border-gray-200 rounded-xl text-[16px] focus:outline-none focus:border-[#0A8A7B]"
-              />
-              <button
-                type="button"
-                onClick={searchAddress}
-                disabled={addressLoading || !address.trim()}
-                className="min-h-[52px] px-5 rounded-xl text-[16px] font-bold text-white shrink-0 disabled:bg-gray-200 disabled:text-gray-400"
-                style={{ background: addressLoading || !address.trim() ? undefined : GREEN }}
-              >
-                {addressLoading ? '찾는 중' : '찾기'}
-              </button>
+            <div className="space-y-6">
+              {hasCenter && (
+                <AddressSearch
+                  label="운동센터 주소"
+                  value={centerResult}
+                  onChange={setCenterResult}
+                  hint="센터 주소는 '센터 찾기' 지도에 보여요."
+                />
+              )}
+              {canVisit && hasCenter && (
+                <label className="flex items-center gap-2.5 min-h-[44px] cursor-pointer">
+                  <input type="checkbox" checked={sameAsCenter} onChange={(e) => setSameAsCenter(e.target.checked)} className="w-6 h-6 accent-[#0A8A7B]" />
+                  <span className="text-[15px] text-gray-700">방문 거리도 센터 주소에서 잴게요</span>
+                </label>
+              )}
+              {canVisit && (!hasCenter || !sameAsCenter) && (
+                <AddressSearch
+                  label="방문 기준 주소"
+                  value={addressResult}
+                  onChange={setAddressResult}
+                  hint="방문 거리를 재는 기준이에요. 집 주소여도 괜찮아요 — 공개되지 않고 지도에도 표시되지 않아요."
+                />
+              )}
             </div>
-            {addressResult && (
-              <div className="mt-3 rounded-xl p-4 border" style={{ background: GREEN_LIGHT, borderColor: '#BFE3DC' }}>
-                <p className="text-[14px] font-bold" style={{ color: GREEN_DARK }}>
-                  📍 위치를 확인했어요
-                </p>
-                <p className="text-[15px] text-gray-700 mt-0.5">{addressResult.address}</p>
-              </div>
-            )}
-            {addressError && <p className="text-[14px] text-red-500 mt-3">{addressError}</p>}
-            <p className="text-[13px] text-gray-400 mt-3">주소는 공개되지 않고, 거리 계산에만 쓰여요.</p>
 
             {canVisit && (
               <div className="mt-8">
@@ -441,7 +448,7 @@ export default function RegisterPage() {
               <p className="text-[15px] font-bold" style={{ color: GREEN_DARK }}>
                 🛡️ 물리치료사 면허 소지자만 가입할 수 있어요
               </p>
-              <p className="text-[14px] text-gray-600 mt-1 leading-relaxed">운영팀이 면허를 확인한 뒤 프로필을 공개해요. 면허번호·휴대폰은 공개되지 않아요.</p>
+              <p className="text-[14px] text-gray-600 mt-1 leading-relaxed">운영자가 면허증 사진 속 이름·면허번호를 아래 정보와 맞춰 본 뒤 프로필을 공개해요. 면허번호·휴대폰·면허증 사진은 공개되지 않아요.</p>
             </div>
             <Field label="이름 (실명)" hint="면허에 적힌 이름과 같아야 해요">
               <input type="text" value={name} onChange={(e) => setName(e.target.value)} maxLength={20} placeholder="홍길동" autoComplete="name" className={inputCls} />
@@ -451,6 +458,30 @@ export default function RegisterPage() {
             </Field>
             <Field label="경력 (년)">
               <input type="number" inputMode="numeric" min={0} max={60} value={years} onChange={(e) => setYears(e.target.value)} placeholder="예: 8" className={inputCls} />
+            </Field>
+            <Field label="면허증 사진" hint="운영자만 보고, 확인하면 바로 지워요">
+              <div className="rounded-xl bg-amber-50 border border-amber-100 p-3 mb-2">
+                <p className="text-[14px] text-amber-900 leading-relaxed">
+                  📷 <b>성함·생년월일·면허번호</b>가 빛 번짐 없이 또렷하게 보이도록 면허증 전체를 찍어 주세요.
+                </p>
+              </div>
+              {licensePreview ? (
+                <div className="relative rounded-xl overflow-hidden border border-gray-200 bg-gray-50">
+                  <img src={licensePreview} alt="올린 면허증 사진" className="w-full max-h-[240px] object-contain" />
+                  <label className="absolute right-2 bottom-2 min-h-[40px] px-3 rounded-lg bg-white/95 border border-gray-200 text-[14px] font-bold text-gray-700 flex items-center cursor-pointer">
+                    다시 찍기
+                    <input type="file" accept="image/*" onChange={pickLicense} className="hidden" />
+                  </label>
+                </div>
+              ) : (
+                <label className="min-h-[120px] rounded-xl border-2 border-dashed border-gray-200 flex flex-col items-center justify-center text-gray-500 cursor-pointer hover:border-[#0A8A7B]">
+                  <span className="text-[28px] leading-none" aria-hidden="true">＋</span>
+                  <span className="text-[15px] font-semibold mt-2">면허증 사진 올리기</span>
+                  <span className="text-[13px] text-gray-400 mt-0.5">촬영하거나 앨범에서 골라 주세요</span>
+                  <input type="file" accept="image/*" onChange={pickLicense} className="hidden" />
+                </label>
+              )}
+              {licenseError && <p className="text-[13px] text-red-500 mt-1.5">{licenseError}</p>}
             </Field>
             <Field label="휴대폰 번호" hint="승인 안내 문자에만 써요">
               <input type="tel" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="010-0000-0000" autoComplete="tel" className={inputCls} />
@@ -484,7 +515,7 @@ export default function RegisterPage() {
                   checked={agreeCollect}
                   onChange={setAgreeCollect}
                   title="[필수] 전문가 개인정보 수집·이용"
-                  lines={['항목: 이름·휴대폰·면허번호·경력, 활동 형태·지역·좌표, 소개·사진·자격·가능한 시간', '목적: 면허 확인, 프로필 공개, 승인 안내 문자', '보관: 전문가 탈퇴 시까지']}
+                  lines={['항목: 이름·휴대폰·면허번호·면허증 사진·경력, 활동 형태·지역·좌표, 소개·사진·자격·가능한 시간', '목적: 면허 확인, 프로필 공개, 승인 안내 문자', '보관: 전문가 탈퇴 시까지 (면허증 사진은 운영자 확인 즉시 삭제)']}
                 />
                 <Consent
                   checked={agreePublic}
@@ -521,6 +552,11 @@ export default function RegisterPage() {
       </div>
     </main>
   )
+}
+
+/** 비공개 보관함 안 본인 폴더 경로 */
+function licensePathFor(userId: string) {
+  return `${userId}/license_${Date.now()}.jpg`
 }
 
 const inputCls = 'w-full min-h-[52px] px-4 border border-gray-200 rounded-xl text-[16px] focus:outline-none focus:border-[#0A8A7B]'
@@ -589,7 +625,7 @@ function ProfileTips({ name }: { name: string }) {
         <div className="mt-6 rounded-2xl bg-gray-50 p-5">
           <p className="text-[16px] font-bold text-gray-900">다음 순서</p>
           <ol className="mt-2 space-y-1.5 text-[15px] text-gray-600 list-decimal list-inside leading-relaxed">
-            <li>운영팀이 물리치료사 면허를 확인해요</li>
+            <li>운영자가 면허증 사진으로 이름·면허번호를 확인해요 (확인 뒤 사진은 바로 지워요)</li>
             <li>승인되면 입력한 휴대폰으로 안내 문자를 보내요</li>
             <li>승인 뒤 보호자 검색에 프로필이 보여요</li>
           </ol>

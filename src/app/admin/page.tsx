@@ -1,6 +1,8 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import AdminMagazine from '@/components/AdminMagazine'
+import AdminReports from '@/components/AdminReports'
 import { practitionerLabel, workTypeLabels } from '@/lib/practitioner'
 
 interface Therapist {
@@ -17,6 +19,16 @@ interface Therapist {
   verification_status: string
   created_at: string
   work_types?: string[] | null
+  license_photo_url?: string | null
+  license_checked_at?: string | null
+  subscribed_until?: string | null
+}
+
+/** 구독 중인지 (한국 날짜 기준) */
+function subscribedNow(until?: string | null): boolean {
+  if (!until) return false
+  const today = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10)
+  return until >= today
 }
 
 // 관리자 목록은 서버(관리자 쿠키 확인)에서만 가져옴
@@ -40,6 +52,13 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(false)
   const [actingId, setActingId] = useState<string | null>(null)
   const [tab, setTab] = useState<'pending' | 'verified' | 'rejected'>('pending')
+  const [section, setSection] = useState<'experts' | 'magazine' | 'reports'>('experts')
+  const onAuthLost = useCallback(() => {
+    alert('세션이 만료되었습니다. 다시 로그인해주세요.')
+    setAuthenticated(false)
+  }, [])
+  // 면허증 사진 속 이름·번호를 가입 정보와 맞춰 봤는지 (체크해야 승인 버튼이 켜짐)
+  const [matched, setMatched] = useState<Record<string, boolean>>({})
 
   // 진입 시 기존 쿠키 세션 확인 (sessionStorage 같은 조작 가능한 플래그 사용 안 함)
   useEffect(() => {
@@ -93,11 +112,11 @@ export default function AdminPage() {
   }
 
   // 모든 관리자 쓰기는 서버 라우트(service_role + 쿠키 인증)를 통해서만 수행
-  const callAdminAction = async (id: string, action: 'approve' | 'reject' | 'revert') => {
+  const callAdminAction = async (id: string, action: 'approve' | 'reject' | 'revert' | 'resend_sms' | 'subscription', days?: number) => {
     const res = await fetch('/api/admin-action', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, action }),
+      body: JSON.stringify({ id, action, days }),
     })
     if (res.status === 401) {
       alert('세션이 만료되었습니다. 다시 로그인해주세요.')
@@ -161,6 +180,35 @@ export default function AdminPage() {
     }
   }
 
+  const handleResendSms = async (id: string, name: string) => {
+    setActingId(id)
+    try {
+      const res = await callAdminAction(id, 'resend_sms')
+      if (!res) return
+      const result = await res.json()
+      if (!res.ok) { alert('보내지 못했어요: ' + (result.error || '알 수 없는 오류')); return }
+      alert(result.smsSent ? '승인 안내 문자를 다시 보냈어요: ' + name : '문자 발송 실패: ' + (result.smsError || '알 수 없음'))
+    } finally {
+      setActingId(null)
+    }
+  }
+
+  const handleSubscription = async (id: string, name: string, days: number) => {
+    const msg = days > 0 ? `${name} 전문가의 구독을 ${days}일 켤까요?\n(남은 구독이 있으면 그 뒤로 이어 붙여요)` : `${name} 전문가의 구독을 끌까요?\n이미 시작한 채팅은 그대로 이어갈 수 있어요.`
+    if (!confirm(msg)) return
+    setActingId(id)
+    try {
+      const res = await callAdminAction(id, 'subscription', days)
+      if (!res) return
+      const result = await res.json()
+      if (!res.ok) { alert('변경 실패: ' + (result.error || '알 수 없는 오류')); return }
+      alert(result.subscribed_until ? `구독 켜짐: ${result.subscribed_until}까지` : '구독을 껐어요')
+      refresh()
+    } finally {
+      setActingId(null)
+    }
+  }
+
   const getTypeLabel = (type: string) => practitionerLabel(type)
 
   if (checking) {
@@ -188,11 +236,21 @@ export default function AdminPage() {
       <div className="sticky top-0 bg-white border-b border-gray-100 px-5 py-4 flex items-center justify-between z-10">
         <div>
           <h1 className="text-lg font-extrabold text-gray-900">관리자</h1>
-          <p className="text-xs text-gray-400">전문가 면허 확인 관리</p>
+          <div className="flex gap-3 mt-1">
+            <button onClick={() => setSection('experts')} className={'text-sm font-bold ' + (section === 'experts' ? 'text-[#0A8A7B]' : 'text-gray-400')}>전문가 승인</button>
+            <button onClick={() => setSection('magazine')} className={'text-sm font-bold ' + (section === 'magazine' ? 'text-[#0A8A7B]' : 'text-gray-400')}>매거진</button>
+            <button onClick={() => setSection('reports')} className={'text-sm font-bold ' + (section === 'reports' ? 'text-[#0A8A7B]' : 'text-gray-400')}>채팅 신고</button>
+          </div>
         </div>
         <button onClick={handleLogout} className="text-xs text-gray-400">로그아웃</button>
       </div>
 
+      {section === 'magazine' ? (
+        <AdminMagazine onAuthLost={onAuthLost} />
+      ) : section === 'reports' ? (
+        <AdminReports onAuthLost={onAuthLost} />
+      ) : (
+      <>
       <div className="px-5 pt-4 flex gap-2 border-b border-gray-100 sticky bg-white z-10" style={{ top: 73 }}>
         <button onClick={() => setTab('pending')} className={'px-4 py-2 text-sm font-bold ' + (tab === 'pending' ? 'border-b-2 border-[#0A8A7B] text-[#0A8A7B]' : 'text-gray-400')}>🟡 대기 중</button>
         <button onClick={() => setTab('verified')} className={'px-4 py-2 text-sm font-bold ' + (tab === 'verified' ? 'border-b-2 border-[#0A8A7B] text-[#0A8A7B]' : 'text-gray-400')}>✅ 승인됨</button>
@@ -219,6 +277,43 @@ export default function AdminPage() {
                   </div>
                   <span className="px-3 py-1 bg-gray-100 text-gray-600 text-xs font-semibold rounded-full">{getTypeLabel(t.practitioner_type)}</span>
                 </div>
+
+                {/* 면허증 사진 ↔ 가입 정보 대조 */}
+                {tab === 'pending' && (
+                  <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-4">
+                    <p className="text-sm font-bold text-amber-900 mb-2">면허증 사진 확인</p>
+                    {t.license_photo_url ? (
+                      <a href={t.license_photo_url} target="_blank" rel="noopener noreferrer" className="block rounded-lg overflow-hidden border border-amber-200 bg-white">
+                        <img src={t.license_photo_url} alt={t.name + ' 면허증'} className="w-full max-h-[360px] object-contain" />
+                      </a>
+                    ) : (
+                      <p className="text-sm text-amber-800">올린 면허증 사진이 없어요. (예전 가입자 — 면허증 사진을 따로 받아 확인해 주세요)</p>
+                    )}
+                    <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+                      <div className="rounded-lg bg-white p-2.5">
+                        <p className="text-xs text-gray-400">가입 이름</p>
+                        <p className="font-bold text-gray-900">{t.name}</p>
+                      </div>
+                      <div className="rounded-lg bg-white p-2.5">
+                        <p className="text-xs text-gray-400">가입 면허번호</p>
+                        <p className="font-bold text-gray-900">{t.license_number}</p>
+                      </div>
+                    </div>
+                    <label className="mt-3 flex items-center gap-2 text-sm font-semibold text-amber-900 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={!!matched[t.id]}
+                        onChange={(e) => setMatched((m) => ({ ...m, [t.id]: e.target.checked }))}
+                        className="w-5 h-5 accent-[#0A8A7B]"
+                      />
+                      사진 속 성함·면허번호가 가입 정보와 같아요 (생년월일도 눈으로 확인)
+                    </label>
+                    <p className="text-xs text-amber-800/80 mt-2">승인·거부하면 면허증 사진은 바로 삭제돼요. 사진을 아무 곳에도 저장하지 마세요.</p>
+                  </div>
+                )}
+                {tab !== 'pending' && t.license_checked_at && (
+                  <p className="mb-3 text-xs text-gray-400">면허증 사진 확인·삭제: {new Date(t.license_checked_at).toLocaleString('ko-KR')}</p>
+                )}
 
                 <div className="bg-gray-50 rounded-xl p-4 mb-4 space-y-2 text-sm">
                   <div className="flex items-center">
@@ -255,17 +350,47 @@ export default function AdminPage() {
 
                 {tab === 'pending' ? (
                   <div className="flex gap-2">
-                    <button onClick={() => handleApprove(t.id, t.name)} disabled={actingId === t.id} className={'flex-1 py-3 rounded-xl font-bold text-sm ' + (actingId === t.id ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : 'bg-[#0A8A7B] text-white')}>{actingId === t.id ? '처리 중...' : '✅ 승인'}</button>
+                    <button onClick={() => handleApprove(t.id, t.name)} disabled={actingId === t.id || !matched[t.id]} className={'flex-1 py-3 rounded-xl font-bold text-sm ' + (actingId === t.id || !matched[t.id] ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : 'bg-[#0A8A7B] text-white')}>{actingId === t.id ? '처리 중...' : matched[t.id] ? '✅ 승인' : '사진 대조 후 승인'}</button>
                     <button onClick={() => handleReject(t.id, t.name)} disabled={actingId === t.id} className="flex-1 py-3 bg-red-50 text-red-600 rounded-xl font-bold text-sm border border-red-100 disabled:opacity-50">❌ 거부</button>
                   </div>
                 ) : (
+                  <>
+                  {tab === 'verified' && (
+                    <div className="mb-3 rounded-xl border border-gray-200 p-4">
+                      <div className="flex items-center gap-2">
+                        <p className="flex-1 text-sm font-bold text-gray-900">상담 수락 구독</p>
+                        {subscribedNow(t.subscribed_until) ? (
+                          <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-[#E8F6F4] text-[#0F6E56]">켜짐 · {t.subscribed_until}까지</span>
+                        ) : (
+                          <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-gray-100 text-gray-500">{t.subscribed_until ? `끝남 (${t.subscribed_until})` : '꺼짐'}</span>
+                        )}
+                      </div>
+                      <p className="text-xs text-gray-400 mt-1">켜져 있어야 상담 요청을 수락할 수 있어요. 시범 기간에는 무료로 켜 주세요.</p>
+                      <div className="mt-3 flex gap-2">
+                        <button onClick={() => handleSubscription(t.id, t.name, 30)} disabled={actingId === t.id} className="flex-1 py-2.5 rounded-xl text-sm font-bold bg-[#0A8A7B] text-white disabled:opacity-50">
+                          {subscribedNow(t.subscribed_until) ? '30일 연장' : '30일 켜기'}
+                        </button>
+                        {subscribedNow(t.subscribed_until) && (
+                          <button onClick={() => handleSubscription(t.id, t.name, 0)} disabled={actingId === t.id} className="px-4 py-2.5 rounded-xl text-sm font-bold bg-gray-100 text-gray-600 disabled:opacity-50">
+                            끄기
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                  {tab === 'verified' && (
+                    <button onClick={() => handleResendSms(t.id, t.name)} disabled={actingId === t.id} className="w-full mb-2 py-3 bg-[#E8F6F4] text-[#0F6E56] rounded-xl font-bold text-sm disabled:opacity-50">📩 승인 안내 문자 다시 보내기</button>
+                  )}
                   <button onClick={() => handleRevert(t.id, t.name)} disabled={actingId === t.id} className="w-full py-3 bg-gray-100 text-gray-600 rounded-xl font-bold text-sm disabled:opacity-50">🔄 대기 중으로 되돌리기</button>
+                  </>
                 )}
               </div>
             ))}
           </div>
         )}
       </div>
+      </>
+      )}
     </main>
   )
 }

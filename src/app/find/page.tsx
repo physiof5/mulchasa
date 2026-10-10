@@ -207,6 +207,12 @@ function Result({
     router.push(`/request?purpose=${encodeURIComponent(primary)}`)
   }
 
+  // 고른 답을 이어받아 '무료 상담 요청'으로 (궁금한 점부터)
+  const goConsult = () => {
+    saveSituation({ ...s, purpose: primary })
+    router.push('/consult/new?from=find')
+  }
+
   const requestBtn = (primaryStyle: boolean) => (
     <button
       type="button"
@@ -274,6 +280,24 @@ function Result({
             ))}
           </ul>
         </details>
+      </section>
+
+      {/* 무료 상담 요청 */}
+      <section className="px-5 pt-6">
+        <button
+          type="button"
+          onClick={goConsult}
+          className="w-full rounded-2xl p-4 text-left text-white flex items-center gap-3 active:scale-[0.99] transition-all"
+          style={{ background: GREEN }}
+        >
+          <span className="flex-1 min-w-0">
+            <span className="block text-[18px] font-extrabold">전문가에게 무료로 물어보기</span>
+            <span className="block text-[14px] opacity-90 mt-0.5">고르신 답 그대로, 가까운 물리치료사 최대 3명이 채팅으로 답해요</span>
+          </span>
+          <span className="text-[24px]" aria-hidden="true">
+            ›
+          </span>
+        </button>
       </section>
 
       {/* 다음 할 일 ① 운동 지도 */}

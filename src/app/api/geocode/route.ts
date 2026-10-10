@@ -23,10 +23,15 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: '주소를 찾을 수 없습니다' }, { status: 404 })
   }
 
-  const { x, y } = data.documents[0]
+  const doc = data.documents[0]
+  const { x, y } = doc
+  // 동네 이름(시·도 + 시·군·구) — 상담 요청서에는 정확한 주소 대신 이 값만 저장
+  const area = doc.address ?? doc.road_address ?? {}
+  const region = [area.region_1depth_name, area.region_2depth_name].filter(Boolean).join(' ')
   return NextResponse.json({
     latitude: parseFloat(y),
     longitude: parseFloat(x),
-    address: data.documents[0].address_name,
+    address: doc.address_name,
+    region,
   })
-}
+}

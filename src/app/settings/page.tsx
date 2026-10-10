@@ -100,6 +100,7 @@ export default function SettingsPage() {
       </Group>
 
       <Group title="서비스">
+        <Row href="/consult/new" icon="💬" title="무료 상담 요청" sub="가까운 전문가 최대 3명이 채팅으로 답해요" />
         <Row href="/find" icon="🔎" title="부모님 상황 맞춤 찾기" sub="상황을 고르면 맞는 운동 지도를 찾아 드려요" />
         <Row href="/request" icon="📝" title="방문 요청서 남기기" sub="운영자가 가까운 전문가를 연결해 드려요" />
         <Row href="/waitlist" icon="🔔" title="사전 신청" sub="오픈 소식을 가장 먼저 받아 보세요" />

@@ -11,6 +11,7 @@ import {
 import MyProfileView from '@/components/MyProfileView'
 import GuestMy from '@/components/GuestMy'
 import KakaoLoginButton from '@/components/KakaoLoginButton'
+import AddressSearch, { type GeoResult } from '@/components/AddressSearch'
 import type { User } from '@supabase/supabase-js'
 import SquareCropper from '@/components/SquareCropper'
 import { PHOTO_MAX, pickPhotos } from '@/lib/squareImage'
@@ -64,6 +65,37 @@ interface CropJob {
   replaceIndex?: number
 }
 
+// 수정 전후 비교용 — 바뀐 곳이 하나라도 있으면 저장할 수 있게
+interface FormValues {
+  kakaoLink: string
+  intro: string
+  faq: Record<string, string>
+  studioName: string
+  certs: string[]
+  workTypes: string[]
+  visitRadius: number
+  bodyParts: string[]
+  purposes: string[]
+  availability: string[]
+  photos: string[]
+}
+function formKeyOf(v: FormValues): string {
+  const sorted = (a: string[]) => [...a].sort()
+  return JSON.stringify({
+    kakaoLink: v.kakaoLink.trim(),
+    intro: v.intro,
+    faq: cleanFaq(v.faq),
+    studioName: v.studioName.trim(),
+    certs: sorted(v.certs),
+    workTypes: sorted(v.workTypes),
+    visitRadius: v.visitRadius,
+    bodyParts: sorted(v.bodyParts),
+    purposes: sorted(v.purposes),
+    availability: sorted(v.availability),
+    photos: v.photos,
+  })
+}
+
 interface Therapist {
   id: string
   name: string
@@ -102,9 +134,10 @@ export default function MyPage() {
   const [faq, setFaq] = useState<Record<string, string>>({})
   const [saveError, setSaveError] = useState('')
   const [studioName, setStudioName] = useState('')
-  const [address, setAddress] = useState('')
-  const [addressResult, setAddressResult] = useState<{ latitude: number; longitude: number; address: string } | null>(null)
-  const [addressLoading, setAddressLoading] = useState(false)
+  // 방문 기준 주소(비공개)와 운동센터 주소(센터 찾기 지도에 공개)는 따로
+  const [addressResult, setAddressResult] = useState<GeoResult | null>(null)
+  const [centerResult, setCenterResult] = useState<GeoResult | null>(null)
+  const [savedCenterAddress, setSavedCenterAddress] = useState<string | null>(null)
   const [selectedBodyParts, setSelectedBodyParts] = useState<string[]>([])
   const [selectedPurposes, setSelectedPurposes] = useState<string[]>([])
   const [selectedCerts, setSelectedCerts] = useState<string[]>([])
@@ -113,6 +146,7 @@ export default function MyPage() {
   const [uploadingImage, setUploadingImage] = useState(false)
   // 대표 사진 3장 (정사각형)
   const [savedPhotos, setSavedPhotos] = useState<string[]>([])
+  const [baselineKey, setBaselineKey] = useState('')
   const [photoSlots, setPhotoSlots] = useState<PhotoSlot[]>([])
   const [photoError, setPhotoError] = useState('')
   const [rating, setRating] = useState<{ avg: number; count: number } | null>(null)
@@ -130,11 +164,21 @@ export default function MyPage() {
   const introBanned = findBannedPhrase(intro)
   const faqBanned = FAQ_QUESTIONS.some(f => findBannedPhrase(faq[f.key] ?? '') !== null)
   const kakaoValid = toOpenChatUrl(kakaoLink) !== null
-  const canSave =
-    intro.trim().length >= 30 &&
-    hasPlaceWork(workTypes) &&
-    (!hasCenter || studioName.trim().length > 0) &&
-    !introBanned && !faqBanned && kakaoValid
+  // 불러온 값과 지금 값을 비교 → 첨부·수정·삭제가 하나라도 있으면 저장 가능 (모든 칸을 채울 필요 없음)
+  const currentKey = formKeyOf({
+    kakaoLink, intro, faq, studioName, certs: selectedCerts, workTypes, visitRadius,
+    bodyParts: selectedBodyParts, purposes: selectedPurposes, availability,
+    photos: photoSlots.map(s => s.url ?? s.preview),
+  })
+  const dirty = currentKey !== baselineKey || profileImage !== null || addressResult !== null || centerResult !== null
+  // 저장을 막는 건 '잘못된 값'일 때만 (비어 있는 칸은 괜찮음)
+  const blockers = [
+    introBanned || faqBanned ? '쓸 수 없는 표현이 있어요. 빨간 안내를 확인해 주세요.' : null,
+    kakaoLink.trim() !== '' && !kakaoValid ? '오픈채팅 주소는 https://open.kakao.com/ 으로 시작해야 해요.' : null,
+    workTypes.length > 0 && !hasPlaceWork(workTypes) ? "활동 형태에서 운영·소속·방문 중 하나는 골라 주세요." : null,
+    hasCenter && studioName.trim().length === 0 ? '운동센터 이름을 넣어 주세요.' : null,
+  ].filter((b): b is string => b !== null)
+  const canSave = dirty && blockers.length === 0
   const toggleWorkType = (value: string) =>
     setWorkTypes(prev => (prev.includes(value) ? prev.filter(v => v !== value) : [...prev, value]))
 
@@ -248,12 +292,15 @@ export default function MyPage() {
     const data = { ...pub, ...(mine ?? {}) }
 
     setTherapist(data)
-    setKakaoLink(data.kakao_link || '')
-    setIntro(data.intro || '')
+    const kakao0: string = data.kakao_link || ''
+    const intro0: string = data.intro || ''
+    setKakaoLink(kakao0)
+    setIntro(intro0)
 
     // 질문답변은 따로 읽음 (칸이 아직 없어도 나머지 화면은 그대로 열리게)
     const { data: faqRow } = await supabase.from('therapists').select('faq').eq('id', data.id).single()
-    setFaq(cleanFaq(faqRow?.faq))
+    const faq0 = cleanFaq(faqRow?.faq)
+    setFaq(faq0)
 
     // 대표 사진도 따로 읽음 (칸이 아직 없으면 빈 목록)
     const { data: photoRow, error: photoReadError } = await supabase.from('therapists').select('photo_urls').eq('id', data.id).single()
@@ -261,18 +308,25 @@ export default function MyPage() {
     setSavedPhotos(saved)
     setPhotoSlots(saved.map(url => ({ url, blob: null, preview: url })))
 
+    // 운동센터 주소 (칸이 아직 없으면 비워 둠)
+    const { data: centerRow, error: centerReadError } = await supabase.from('therapists').select('center_address').eq('id', data.id).single()
+    setSavedCenterAddress(centerReadError ? null : centerRow?.center_address ?? null)
+
     // 후기 평점 (내 프로필 머리에 표시)
     const { data: rv } = await supabase.from('reviews').select('rating').eq('therapist_id', data.id)
     setRating(rv && rv.length > 0 ? { avg: rv.reduce((s, r) => s + r.rating, 0) / rv.length, count: rv.length } : null)
-    setStudioName(data.studio_name || '')
-    setSelectedCerts(data.certifications || [])
+    const studio0: string = data.studio_name || ''
+    const certs0: string[] = data.certifications || []
+    setStudioName(studio0)
+    setSelectedCerts(certs0)
     // 예전 가입자는 활동 형태가 비어 있을 수 있어, 방문 여부만 옮겨 담고 나머지는 직접 고르게 함
     const savedTypes: string[] =
       data.work_types && data.work_types.length > 0
         ? data.work_types
         : data.service_mode === 'visit' || data.service_mode === 'both' ? ['freelance_visit'] : []
     setWorkTypes(savedTypes)
-    if (data.visit_radius_km) setVisitRadius(data.visit_radius_km)
+    const radius0: number = data.visit_radius_km || 10
+    setVisitRadius(radius0)
     if (data.profile_image_url) setProfileImagePreview(data.profile_image_url)
 
     const { data: ttData } = await supabase
@@ -280,6 +334,8 @@ export default function MyPage() {
       .select('tag_id')
       .eq('therapist_id', data.id)
 
+    let body0: string[] = []
+    let purpose0: string[] = []
     if (ttData && ttData.length > 0) {
       const tagIds = ttData.map(t => t.tag_id)
       const { data: tagData } = await supabase
@@ -288,19 +344,29 @@ export default function MyPage() {
         .in('id', tagIds)
 
       if (tagData) {
-        setSelectedBodyParts(tagData.filter(t => t.category === 'body_part').map(t => t.label))
-        setSelectedPurposes(tagData.filter(t => t.category === 'purpose').map(t => t.label))
+        body0 = tagData.filter(t => t.category === 'body_part').map(t => t.label)
+        purpose0 = tagData.filter(t => t.category === 'purpose').map(t => t.label)
       }
     }
+    setSelectedBodyParts(body0)
+    setSelectedPurposes(purpose0)
 
     const { data: avData } = await supabase
       .from('therapist_availability')
       .select('day_of_week, slot')
       .eq('therapist_id', data.id)
 
-    if (avData && avData.length > 0) {
-      setAvailability(avData.map(a => `${a.day_of_week}-${a.slot}`))
-    }
+    const avail0 = (avData || []).map(a => `${a.day_of_week}-${a.slot}`)
+    setAvailability(avail0)
+
+    // 지금 불러온 값을 '저장된 상태'로 기억 → 이후 바뀐 곳이 있는지 비교
+    setProfileImage(null)
+    setAddressResult(null)
+    setCenterResult(null)
+    setBaselineKey(formKeyOf({
+      kakaoLink: kakao0, intro: intro0, faq: faq0, studioName: studio0, certs: certs0, workTypes: savedTypes,
+      visitRadius: radius0, bodyParts: body0, purposes: purpose0, availability: avail0, photos: saved,
+    }))
 
     return true
   }, [])
@@ -329,20 +395,6 @@ export default function MyPage() {
     setTherapist(null)
     setAuthUser(null)
     setStep('login')
-  }
-
-  const handleAddressSearch = async () => {
-    if (!address.trim()) return
-    setAddressLoading(true)
-    try {
-      const res = await fetch(`/api/geocode?address=${encodeURIComponent(address)}`)
-      const data = await res.json()
-      if (res.ok) setAddressResult(data)
-    } catch {
-      console.error('주소 검색 오류')
-    } finally {
-      setAddressLoading(false)
-    }
   }
 
   const uploadProfileImage = async (therapistId: string): Promise<string | null> => {
@@ -383,8 +435,9 @@ export default function MyPage() {
         intro,
         faq: cleanFaq(faq),
         studio_name: hasCenter ? studioName.trim() || null : null,
-        latitude: addressResult?.latitude ?? therapist.latitude,
-        longitude: addressResult?.longitude ?? therapist.longitude,
+        // 거리 검색 기준: 새 방문 기준 주소 → (방문 안 하면) 새 센터 주소 → 기존 값
+        latitude: addressResult?.latitude ?? (!canVisit && centerResult ? centerResult.latitude : therapist.latitude),
+        longitude: addressResult?.longitude ?? (!canVisit && centerResult ? centerResult.longitude : therapist.longitude),
         profile_image_url: profileImageUrl,
         certifications: selectedCerts,
         work_types: workTypes,
@@ -399,6 +452,16 @@ export default function MyPage() {
       setSaveError('저장하지 못했어요. 잠시 후 다시 시도해 주세요.')
       setSaving(false)
       return
+    }
+
+    // 센터 주소는 따로 저장 (칸이 아직 없어도 나머지 저장은 유지)
+    let centerMessage = ''
+    if (hasCenter && centerResult) {
+      const { error: centerError } = await supabase
+        .from('therapists')
+        .update({ center_address: centerResult.address, center_lat: centerResult.latitude, center_lng: centerResult.longitude })
+        .eq('id', therapist.id)
+      if (centerError) centerMessage = ' 센터 주소는 저장하지 못했어요.'
     }
 
     await supabase.from('therapist_tags').delete().eq('therapist_id', therapist.id)
@@ -437,7 +500,7 @@ export default function MyPage() {
 
     if (therapist.user_id) await loadTherapist(therapist.user_id)
     setSaving(false)
-    setNotice('✅ 프로필을 저장했어요.' + photoMessage)
+    setNotice('✅ 프로필을 저장했어요.' + photoMessage + centerMessage)
     setStep('view')
     window.scrollTo(0, 0)
   }
@@ -718,23 +781,22 @@ export default function MyPage() {
               )}
             </div>
 
-            <div>
-              <label className="text-sm font-bold text-gray-700 block mb-2">
-                {canVisit ? '활동 기준 주소 변경' : '운동센터 주소 변경'}
-              </label>
-              <div className="flex gap-2 mb-2">
-                <input type="text" value={address} onChange={(e) => setAddress(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAddressSearch()} placeholder="새 주소 입력" className="flex-1 p-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#0A8A7B]" />
-                <button onClick={handleAddressSearch} disabled={addressLoading || !address.trim()} className="px-4 py-3 bg-[#0A8A7B] text-white rounded-xl text-sm font-bold shrink-0 disabled:bg-gray-200 disabled:text-gray-400">
-                  {addressLoading ? '검색 중' : '검색'}
-                </button>
-              </div>
-              {addressResult && (
-                <div className="bg-green-50 border border-green-200 rounded-xl p-3">
-                  <p className="text-xs font-bold text-green-700 mb-1">✅ 위치 확인됨</p>
-                  <p className="text-xs text-green-600">{addressResult.address}</p>
-                </div>
-              )}
-            </div>
+            {hasCenter && (
+              <AddressSearch
+                label="운동센터 주소"
+                value={centerResult}
+                onChange={setCenterResult}
+                hint={savedCenterAddress ? `지금 주소: ${savedCenterAddress} · 센터 찾기 지도에 보여요` : '아직 넣지 않았어요. 넣으면 센터 찾기 지도에 보여요.'}
+              />
+            )}
+            {canVisit && (
+              <AddressSearch
+                label="방문 기준 주소 바꾸기"
+                value={addressResult}
+                onChange={setAddressResult}
+                hint="방문 거리를 재는 기준이에요. 공개되지 않고 지도에도 표시되지 않아요."
+              />
+            )}
 
             <div>
               <label className="text-sm font-bold text-gray-700 block mb-3">전문 부위 <span className="text-xs text-gray-400 font-normal">(선택 · 복수 선택)</span></label>
@@ -762,7 +824,7 @@ export default function MyPage() {
             </div>
 
             <div>
-              <label className="text-sm font-bold text-gray-700 block mb-2">자기소개 <span className="text-xs text-gray-400 font-normal">(최소 30자)</span></label>
+              <label className="text-sm font-bold text-gray-700 block mb-2">자기소개 <span className="text-xs text-gray-400 font-normal">(30자 이상이면 보호자에게 더 잘 보여요)</span></label>
               <textarea value={intro} onChange={(e) => setIntro(e.target.value)} rows={6} className="w-full p-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#0A8A7B] resize-none" />
               <p className="text-xs text-gray-400 mt-1 text-right">{intro.length}자</p>
               {introBanned && <p className="text-xs text-red-500 mt-1 leading-relaxed">{bannedMessage(introBanned)}</p>}
@@ -817,8 +879,11 @@ export default function MyPage() {
       {step === 'edit' && (
         <div className="fixed bottom-0 left-0 right-0 max-w-md mx-auto px-5 py-4 bg-white border-t border-gray-100 z-20">
           {saveError && <p className="text-sm text-red-500 text-center mb-2">{saveError}</p>}
-          {!saveError && (introBanned || faqBanned) && (
-            <p className="text-xs text-red-500 text-center mb-2">쓸 수 없는 표현이 있어 저장할 수 없어요. 빨간 안내를 확인해 주세요.</p>
+          {!saveError && blockers.length > 0 && (
+            <p className="text-xs text-red-500 text-center mb-2">{blockers[0]}</p>
+          )}
+          {!saveError && blockers.length === 0 && !dirty && (
+            <p className="text-xs text-gray-400 text-center mb-2">바뀐 내용이 없어요. 사진 한 장, 글자 하나만 바꿔도 저장할 수 있어요.</p>
           )}
           <button onClick={handleSave} disabled={saving || uploadingImage || !canSave}
             className={'w-full py-4 rounded-2xl font-bold text-base transition-all ' + (!saving && !uploadingImage && canSave ? 'bg-[#0A8A7B] text-white active:scale-[0.98]' : 'bg-gray-100 text-gray-300 cursor-not-allowed')}>
