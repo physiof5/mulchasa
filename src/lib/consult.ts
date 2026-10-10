@@ -7,8 +7,6 @@ import {
   CONDITION_OPTIONS,
   MOBILITY_OPTIONS,
   PLACE_OPTIONS,
-  WHO_OPTIONS,
-  honorific,
   labelOf,
   type AgeBand,
   type Condition,
@@ -16,7 +14,6 @@ import {
   type Mobility,
   type Option,
   type Place,
-  type Who,
 } from '@/lib/care'
 
 export const MAX_ACCEPT = 3
@@ -25,6 +22,26 @@ export const CHAT_KEEP_DAYS = 180
 export const NOTE_MAX = 500
 export const MESSAGE_MAX = 1000
 export const CONTACT_EMAIL = 'spacex2025@naver.com'
+
+/** 상담 대상 — 맞춤 찾기(어머님·아버님·다른 가족)에 배우자·본인을 더함 */
+export type ConsultWho = 'mother' | 'father' | 'spouse' | 'self' | 'other'
+
+export const CONSULT_WHO_OPTIONS: Option<ConsultWho>[] = [
+  { value: 'mother', label: '어머님' },
+  { value: 'father', label: '아버님' },
+  { value: 'spouse', label: '배우자' },
+  { value: 'self', label: '본인' },
+  { value: 'other', label: '다른 가족' },
+]
+
+/** 질문 문장의 주어 (본인이면 빈 글자 → '지금 어떻게 움직이세요?') */
+export function consultSubject(who: ConsultWho | string | null | undefined): string {
+  if (who === 'mother') return '어머님'
+  if (who === 'father') return '아버님'
+  if (who === 'spouse') return '배우자분'
+  if (who === 'self') return ''
+  return '가족분'
+}
 
 export type Want = 'home_exercise' | 'fall_safety' | 'visit' | 'center' | 'cost_schedule' | 'welfare'
 
@@ -38,7 +55,7 @@ export const WANT_OPTIONS: Option<Want>[] = [
 ]
 
 export interface ConsultAnswers {
-  who: Who
+  who: ConsultWho
   age: AgeBand
   mobility: Mobility
   conditions: Condition[]
@@ -75,7 +92,9 @@ export interface MyExpert {
 
 // ── 글자 만들기 ──
 export function consultTitle(a: Pick<ConsultAnswers, 'who'> | null | undefined): string {
-  return `${honorific(a?.who)} 상담`
+  const who = a?.who
+  const name = who === 'mother' ? '어머님' : who === 'father' ? '아버님' : who === 'spouse' ? '배우자' : who === 'self' ? '본인' : '가족'
+  return `${name} 상담`
 }
 
 export function ageText(age: AgeBand | string | null | undefined): string {
@@ -85,7 +104,7 @@ export function ageText(age: AgeBand | string | null | undefined): string {
 /** 요청서 내용 줄 (보호자·전문가 화면 공통) */
 export function answerLines(a: ConsultAnswers): { label: string; value: string }[] {
   return [
-    { label: '대상', value: `${labelOf(WHO_OPTIONS, a.who)} (${ageText(a.age)})` },
+    { label: '대상', value: `${labelOf(CONSULT_WHO_OPTIONS, a.who)} (${ageText(a.age)})` },
     { label: '거동', value: labelOf(MOBILITY_OPTIONS, a.mobility) },
     { label: '상황', value: (a.conditions ?? []).map((c) => labelOf(CONDITION_OPTIONS, c)).join(', ') },
     { label: '최근 1년 낙상', value: a.fell === 'yes' ? '있어요' : a.fell === 'no' ? '없어요' : '잘 모르겠어요' },

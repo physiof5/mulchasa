@@ -1,6 +1,8 @@
 'use client'
 
-// 무료 상담 요청 — 한 화면에 한 질문 → 동네 → 확인·동의 → 보내기
+// 무료 상담 요청 — 5화면
+//  ① 누구·연세  ② 거동  ③ 상황(질환 + 최근 낙상)  ④ 궁금한 점 + 받고 싶은 곳  ⑤ 동네 + 남긴 글 + 동의·보내기
+// 주 사용자는 자녀 세대라 한 화면에 질문 두 개까지 묶는다(끝까지 보내는 비율을 높이려고).
 // 보내기 직전에만 로그인(카카오). 로그인하러 다녀오는 동안 답은 이 기기(sessionStorage)에 잠시 보관.
 // 서버에는 정해진 선택지 값 + 남긴 글 + 동네 이름 + 대략 위치(약 1km)만 저장한다. 정확한 주소는 보내지 않는다.
 
@@ -14,15 +16,15 @@ import AddressSearch, { type GeoResult } from '@/components/AddressSearch'
 import KakaoLoginButton from '@/components/KakaoLoginButton'
 import { notifyPush } from '@/lib/push'
 import {
-  WHO_OPTIONS, AGE_OPTIONS, MOBILITY_OPTIONS, CONDITION_OPTIONS, EXCLUSIVE_CONDITION, FALL_OPTIONS, PLACE_OPTIONS,
-  honorific, parseSituation, readSituationRaw, type Condition,
+  AGE_OPTIONS, MOBILITY_OPTIONS, CONDITION_OPTIONS, EXCLUSIVE_CONDITION, FALL_OPTIONS, PLACE_OPTIONS,
+  parseSituation, readSituationRaw, type Condition,
 } from '@/lib/care'
 import {
-  WANT_OPTIONS, MAX_ACCEPT, CONSULT_DAYS, CHAT_KEEP_DAYS, NOTE_MAX, answerLines, friendlyError,
+  CONSULT_WHO_OPTIONS, WANT_OPTIONS, MAX_ACCEPT, CONSULT_DAYS, CHAT_KEEP_DAYS, NOTE_MAX, answerLines, consultSubject, friendlyError,
   saveConsultDraft, takeConsultDraft, clearConsultDraft, type ConsultAnswers, type Want,
 } from '@/lib/consult'
 
-const STEPS = ['who', 'age', 'mobility', 'conditions', 'fell', 'wants', 'place', 'area', 'review'] as const
+const STEPS = ['who', 'mobility', 'situation', 'wants', 'send'] as const
 type StepKey = (typeof STEPS)[number]
 
 type Draft = Partial<Pick<ConsultAnswers, 'who' | 'age' | 'mobility' | 'fell' | 'place'>> & {
@@ -35,8 +37,13 @@ type Draft = Partial<Pick<ConsultAnswers, 'who' | 'age' | 'mobility' | 'fell' | 
 
 const EMPTY: Draft = { conditions: [], wants: [], note: '', area: null, agree: false }
 
+/** 답이 다 찼는지 (동네 제외) */
+function answersDone(d: Draft): boolean {
+  return !!(d.who && d.age && d.mobility && d.conditions.length > 0 && d.fell && d.wants.length > 0 && d.place)
+}
+
 function isComplete(d: Draft): d is Draft & ConsultAnswers & { area: GeoResult } {
-  return !!(d.who && d.age && d.mobility && d.conditions.length > 0 && d.fell && d.wants.length > 0 && d.place && d.area)
+  return answersDone(d) && !!d.area
 }
 
 /** 동네 이름: 서버가 준 '시·도 시·군·구', 없으면 주소 앞 두 낱말 */
@@ -45,12 +52,18 @@ function areaLabel(a: GeoResult | null): string {
   return a.region || a.address.split(' ').slice(0, 2).join(' ')
 }
 
+/** '어머님은 지금' / (본인) '지금' */
+function subjectWith(who: Draft['who'], particle: '은' | '이'): string {
+  const s = consultSubject(who)
+  return s ? `${s}${particle} ` : ''
+}
+
 function initialState(resume: boolean, fromFind: boolean): { draft: Draft; step: number } {
   if (resume) {
     const d = takeConsultDraft<Draft>()
     if (d && Array.isArray(d.conditions) && Array.isArray(d.wants)) {
       const draft = { ...EMPTY, ...d }
-      return { draft, step: isComplete(draft) ? STEPS.indexOf('review') : 0 }
+      return { draft, step: answersDone(draft) ? STEPS.indexOf('send') : 0 }
     }
   }
   if (fromFind) {
@@ -74,6 +87,33 @@ export default function ConsultNewPage({ searchParams }: { searchParams: Promise
   return <ConsultFlow resume={params.resume === '1'} fromFind={params.from === 'find'} />
 }
 
+// ── 짧은 선택지(대상·연세·낙상·받을 곳)는 칩 모양 ──
+function Chip({ label, desc, selected, onClick }: { label: string; desc?: string; selected: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={selected}
+      className="min-h-[56px] px-2 py-2.5 rounded-2xl border-2 text-center flex flex-col items-center justify-center active:scale-[0.98] transition-all"
+      style={selected ? { borderColor: GREEN, background: GREEN_LIGHT } : { borderColor: '#E5E7EB', background: '#fff' }}
+    >
+      <span className="text-[16px] font-bold leading-snug whitespace-nowrap" style={{ color: selected ? GREEN_DARK : '#1F2937' }}>
+        {label}
+      </span>
+      {desc && <span className="text-[13px] text-gray-500 leading-snug mt-0.5">{desc}</span>}
+    </button>
+  )
+}
+
+function SubTitle({ children, sub }: { children: ReactNode; sub?: string }) {
+  return (
+    <div className="mb-3">
+      <h2 className="text-[19px] font-extrabold text-gray-900 leading-snug">{children}</h2>
+      {sub && <p className="text-[14px] text-gray-500 mt-0.5">{sub}</p>}
+    </div>
+  )
+}
+
 function ConsultFlow({ resume, fromFind }: { resume: boolean; fromFind: boolean }) {
   const router = useRouter()
   const user = useAuthUser()
@@ -89,21 +129,23 @@ function ConsultFlow({ resume, fromFind }: { resume: boolean; fromFind: boolean 
     window.scrollTo(0, 0)
   }, [stepIdx])
 
-  const h = honorific(draft.who)
   const step: StepKey = STEPS[Math.min(stepIdx, STEPS.length - 1)]
   const goTo = (key: StepKey) => setStepIdx(STEPS.indexOf(key))
+  const next = () => setStepIdx((i) => Math.min(i + 1, STEPS.length - 1))
+  const set = <K extends keyof Draft>(key: K, value: Draft[K]) => setDraft((d) => ({ ...d, [key]: value }))
 
   const goBack = () => {
     if (stepIdx === 0) router.push('/')
     else setStepIdx((i) => i - 1)
   }
 
-  const choose = <K extends 'who' | 'age' | 'mobility' | 'fell' | 'place'>(key: K, value: ConsultAnswers[K]) => {
+  // 거동처럼 한 가지만 고르는 화면: 고른 표시가 잠깐 보이도록 살짝 기다렸다 다음으로
+  const chooseAndNext = (value: ConsultAnswers['mobility']) => {
     if (advancing.current) return
     advancing.current = true
-    setDraft((d) => ({ ...d, [key]: value }))
+    set('mobility', value)
     window.setTimeout(() => {
-      setStepIdx((i) => i + 1)
+      next()
       advancing.current = false
     }, 180)
   }
@@ -116,8 +158,7 @@ function ConsultFlow({ resume, fromFind }: { resume: boolean; fromFind: boolean 
       return { ...d, conditions: [...d.conditions.filter((x) => x !== EXCLUSIVE_CONDITION), c] }
     })
 
-  const toggleWant = (w: Want) =>
-    setDraft((d) => ({ ...d, wants: d.wants.includes(w) ? d.wants.filter((x) => x !== w) : [...d.wants, w] }))
+  const toggleWant = (w: Want) => setDraft((d) => ({ ...d, wants: d.wants.includes(w) ? d.wants.filter((x) => x !== w) : [...d.wants, w] }))
 
   const submit = async () => {
     if (!isComplete(draft) || !draft.agree || busy) return
@@ -155,51 +196,52 @@ function ConsultFlow({ resume, fromFind }: { resume: boolean; fromFind: boolean 
     router.replace(`/consult/${data}?new=1`)
   }
 
-  const total = STEPS.length
   const shell = (children: ReactNode, footer?: ReactNode) => (
-    <FlowShell title="무료 상담 요청" step={stepIdx + 1} total={total} onBack={goBack} footer={footer}>
+    <FlowShell title="무료 상담 요청" step={stepIdx + 1} total={STEPS.length} onBack={goBack} footer={footer}>
       {children}
     </FlowShell>
   )
 
   switch (step) {
+    // ① 누구·연세
     case 'who':
       return shell(
         <>
-          <Question
-            title={'누구를 위한\n상담인가요?'}
-            sub={`몇 가지만 고르면 가까운 물리치료사 최대 ${MAX_ACCEPT}명이 수락하고, 채팅으로 무료 상담해 드려요.`}
-          />
-          <div className="flex flex-col gap-2.5">
-            {WHO_OPTIONS.map((o) => (
-              <OptionButton key={o.value} label={o.label} desc={o.desc} selected={draft.who === o.value} onClick={() => choose('who', o.value)} />
+          <Question title={'누구를 위한\n상담인가요?'} sub={`몇 가지만 고르면 가까운 물리치료사 최대 ${MAX_ACCEPT}명이 수락하고, 채팅으로 무료 상담해 드려요.`} />
+          <div className="grid grid-cols-3 gap-2">
+            {CONSULT_WHO_OPTIONS.map((o) => (
+              <Chip key={o.value} label={o.label} selected={draft.who === o.value} onClick={() => set('who', o.value)} />
             ))}
           </div>
-        </>
-      )
-    case 'age':
-      return shell(
-        <>
-          <Question title={`${h} 연세는요?`} />
-          <div className="flex flex-col gap-2.5">
-            {AGE_OPTIONS.map((o) => (
-              <OptionButton key={o.value} label={o.label} selected={draft.age === o.value} onClick={() => choose('age', o.value)} />
-            ))}
+          <div className="mt-8">
+            <SubTitle>{draft.who === 'self' ? '나이는요?' : '연세는요?'}</SubTitle>
+            <div className="grid grid-cols-2 gap-2">
+              {AGE_OPTIONS.map((o) => (
+                <Chip key={o.value} label={o.value === '65plus' ? '65세 이상' : '65세 미만'} selected={draft.age === o.value} onClick={() => set('age', o.value)} />
+              ))}
+            </div>
           </div>
-        </>
+        </>,
+        <PrimaryButton onClick={next} disabled={!draft.who || !draft.age}>
+          다음
+        </PrimaryButton>
       )
+
+    // ② 거동 (하나 고르면 바로 다음)
     case 'mobility':
       return shell(
         <>
-          <Question title={`${h}은 지금\n어떻게 움직이세요?`} />
+          <Question title={draft.who === 'self' ? '지금 어떻게\n움직이세요?' : `${subjectWith(draft.who, '은')}지금\n어떻게 움직이세요?`} />
           <div className="flex flex-col gap-2.5">
             {MOBILITY_OPTIONS.map((o) => (
-              <OptionButton key={o.value} label={o.label} desc={o.desc} selected={draft.mobility === o.value} onClick={() => choose('mobility', o.value)} />
+              <OptionButton key={o.value} label={o.label} desc={o.desc} selected={draft.mobility === o.value} onClick={() => chooseAndNext(o.value)} />
             ))}
           </div>
         </>
       )
-    case 'conditions':
+
+    // ③ 상황 + 최근 낙상
+    case 'situation':
       return shell(
         <>
           <Question title="어떤 일이 있으셨나요?" sub="해당하는 것을 모두 골라 주세요" />
@@ -208,22 +250,21 @@ function ConsultFlow({ resume, fromFind }: { resume: boolean; fromFind: boolean 
               <OptionButton key={o.value} multi label={o.label} selected={draft.conditions.includes(o.value)} onClick={() => toggleCondition(o.value)} />
             ))}
           </div>
+          <div className="mt-8">
+            <SubTitle sub="한 번이라도 넘어졌다면 다시 넘어질 위험이 높아요">최근 1년 안에 넘어진 적이 있나요?</SubTitle>
+            <div className="grid grid-cols-3 gap-2">
+              {FALL_OPTIONS.map((o) => (
+                <Chip key={o.value} label={o.value === 'yes' ? '있어요' : o.value === 'no' ? '없어요' : '모르겠어요'} selected={draft.fell === o.value} onClick={() => set('fell', o.value)} />
+              ))}
+            </div>
+          </div>
         </>,
-        <PrimaryButton onClick={() => setStepIdx((i) => i + 1)} disabled={draft.conditions.length === 0}>
+        <PrimaryButton onClick={next} disabled={draft.conditions.length === 0 || !draft.fell}>
           다음
         </PrimaryButton>
       )
-    case 'fell':
-      return shell(
-        <>
-          <Question title={'최근 1년 안에\n넘어지신 적이 있나요?'} />
-          <div className="flex flex-col gap-2.5">
-            {FALL_OPTIONS.map((o) => (
-              <OptionButton key={o.value} label={o.label} selected={draft.fell === o.value} onClick={() => choose('fell', o.value)} />
-            ))}
-          </div>
-        </>
-      )
+
+    // ④ 궁금한 점 + 받고 싶은 곳
     case 'wants':
       return shell(
         <>
@@ -233,45 +274,29 @@ function ConsultFlow({ resume, fromFind }: { resume: boolean; fromFind: boolean 
               <OptionButton key={o.value} multi label={o.label} desc={o.desc} selected={draft.wants.includes(o.value)} onClick={() => toggleWant(o.value)} />
             ))}
           </div>
-        </>,
-        <PrimaryButton onClick={() => setStepIdx((i) => i + 1)} disabled={draft.wants.length === 0}>
-          다음
-        </PrimaryButton>
-      )
-    case 'place':
-      return shell(
-        <>
-          <Question title={'운동 지도는\n어디서 받고 싶으세요?'} sub="아직 정하지 않았다면 '둘 다 괜찮아요'를 골라 주세요" />
-          <div className="flex flex-col gap-2.5">
-            {PLACE_OPTIONS.map((o) => (
-              <OptionButton key={o.value} label={o.label} desc={o.desc} selected={draft.place === o.value} onClick={() => choose('place', o.value)} />
-            ))}
+          <div className="mt-8">
+            <SubTitle sub="아직 정하지 않았다면 '둘 다'를 골라 주세요">운동 지도는 어디서 받고 싶으세요?</SubTitle>
+            <div className="grid grid-cols-3 gap-2">
+              {PLACE_OPTIONS.map((o) => (
+                <Chip
+                  key={o.value}
+                  label={o.value === 'home' ? '집으로' : o.value === 'center' ? '운동센터' : '둘 다'}
+                  desc={o.value === 'home' ? '방문 지도' : o.value === 'center' ? '가까운 센터' : '괜찮아요'}
+                  selected={draft.place === o.value}
+                  onClick={() => set('place', o.value)}
+                />
+              ))}
+            </div>
           </div>
-        </>
-      )
-    case 'area':
-      return shell(
-        <>
-          <Question title={`${h}이 계신\n동네를 알려 주세요`} sub="가까운 전문가에게 요청을 보낼 때 써요" />
-          <AddressSearch
-            label="동네 찾기"
-            placeholder="예: 송파구 잠실동"
-            value={draft.area}
-            onChange={(v) => setDraft((d) => ({ ...d, area: v }))}
-            hint="동 이름까지만 넣어도 돼요. 정확한 주소는 저장하지 않아요."
-          />
-          {draft.area && (
-            <p className="mt-4 rounded-xl px-4 py-3 text-[15px] leading-relaxed" style={{ background: GREEN_LIGHT, color: GREEN_DARK }}>
-              전문가에게는 <b>&lsquo;{areaLabel(draft.area)}&rsquo;</b>과 대략적인 거리만 보여요.
-            </p>
-          )}
         </>,
-        <PrimaryButton onClick={() => setStepIdx((i) => i + 1)} disabled={!draft.area}>
+        <PrimaryButton onClick={next} disabled={draft.wants.length === 0 || !draft.place}>
           다음
         </PrimaryButton>
       )
-    case 'review': {
-      if (!isComplete(draft)) {
+
+    // ⑤ 동네 + 남긴 글 + 확인·동의 → 보내기
+    case 'send': {
+      if (!answersDone(draft)) {
         return shell(
           <div className="text-center pt-16">
             <p className="text-[18px] text-gray-600 mb-6">빠진 답이 있어요. 처음부터 다시 골라 주세요.</p>
@@ -279,36 +304,31 @@ function ConsultFlow({ resume, fromFind }: { resume: boolean; fromFind: boolean 
           </div>
         )
       }
-      const editStep: Record<string, StepKey> = { 대상: 'who', 거동: 'mobility', 상황: 'conditions', '최근 1년 낙상': 'fell', '궁금한 점': 'wants', '받고 싶은 곳': 'place' }
+      const editStep: Record<string, StepKey> = { 대상: 'who', 거동: 'mobility', 상황: 'situation', '최근 1년 낙상': 'situation', '궁금한 점': 'wants', '받고 싶은 곳': 'wants' }
       return (
         <>
           {shell(
             <>
-              <Question title={'이렇게 보낼게요'} sub={`근처 전문가에게 요청이 전달되고, 최대 ${MAX_ACCEPT}명이 수락하면 채팅으로 무료 상담해요.`} />
+              <Question title={`${draft.who === 'self' ? '지금 계신' : `${consultSubject(draft.who)}이 계신`}\n동네를 알려 주세요`} sub="가까운 전문가에게 요청을 보낼 때 써요" />
+              <AddressSearch
+                label="동네 찾기"
+                placeholder="예: 송파구 잠실동"
+                value={draft.area}
+                onChange={(v) => set('area', v)}
+                hint="동 이름까지만 넣어도 돼요. 정확한 주소는 저장하지 않아요."
+              />
+              {draft.area && (
+                <p className="mt-3 rounded-xl px-4 py-3 text-[15px] leading-relaxed" style={{ background: GREEN_LIGHT, color: GREEN_DARK }}>
+                  전문가에게는 <b>&lsquo;{areaLabel(draft.area)}&rsquo;</b>과 대략적인 거리만 보여요.
+                </p>
+              )}
 
-              <div className="rounded-2xl border border-gray-100 bg-gray-50 px-4 py-2">
-                {[...answerLines(draft), { label: '동네', value: areaLabel(draft.area) }].map((l) => (
-                  <div key={l.label} className="flex items-start gap-3 py-2.5 border-b border-gray-100 last:border-0">
-                    <span className="w-[86px] shrink-0 text-[14px] text-gray-500 pt-0.5">{l.label}</span>
-                    <span className="flex-1 min-w-0 text-[16px] font-semibold text-gray-800 leading-snug">{l.value}</span>
-                    <button
-                      type="button"
-                      onClick={() => goTo(l.label === '동네' ? 'area' : editStep[l.label] ?? 'who')}
-                      className="shrink-0 min-h-[32px] px-2 text-[14px] font-semibold"
-                      style={{ color: GREEN_DARK }}
-                    >
-                      고치기
-                    </button>
-                  </div>
-                ))}
-              </div>
-
-              <label className="block mt-6">
+              <label className="block mt-7">
                 <span className="text-[17px] font-bold text-gray-900">전문가에게 하고 싶은 말 (선택)</span>
                 <textarea
                   value={draft.note}
-                  onChange={(e) => setDraft((d) => ({ ...d, note: e.target.value.slice(0, NOTE_MAX) }))}
-                  rows={4}
+                  onChange={(e) => set('note', e.target.value.slice(0, NOTE_MAX))}
+                  rows={3}
                   placeholder="예: 지난달 퇴원하셨어요. 집에 계단이 있고, 밤에 화장실 가실 때 불안해요."
                   className="mt-2 w-full p-4 border border-gray-200 rounded-xl text-[16px] leading-relaxed focus:outline-none focus:border-[#0A8A7B] resize-none"
                 />
@@ -320,14 +340,29 @@ function ConsultFlow({ resume, fromFind }: { resume: boolean; fromFind: boolean 
                 </span>
               </label>
 
-              <div className="mt-6 rounded-2xl border-2 p-4" style={{ borderColor: draft.agree ? GREEN : '#E5E7EB' }}>
+              <details className="mt-6 rounded-2xl border border-gray-100 bg-gray-50 px-4 py-1 group">
+                <summary className="min-h-[48px] flex items-center text-[16px] font-bold text-gray-800 cursor-pointer list-none">
+                  <span className="flex-1">보낼 내용 확인하기</span>
+                  <span className="text-gray-400 group-open:rotate-180 transition-transform" aria-hidden="true">
+                    ▾
+                  </span>
+                </summary>
+                <div className="pb-2">
+                  {answerLines(draft as ConsultAnswers).map((l) => (
+                    <div key={l.label} className="flex items-start gap-3 py-2.5 border-t border-gray-100">
+                      <span className="w-[86px] shrink-0 text-[14px] text-gray-500 pt-0.5">{l.label}</span>
+                      <span className="flex-1 min-w-0 text-[15px] font-semibold text-gray-800 leading-snug">{l.value}</span>
+                      <button type="button" onClick={() => goTo(editStep[l.label] ?? 'who')} className="shrink-0 min-h-[32px] px-2 text-[14px] font-semibold" style={{ color: GREEN_DARK }}>
+                        고치기
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </details>
+
+              <div className="mt-4 rounded-2xl border-2 p-4" style={{ borderColor: draft.agree ? GREEN : '#E5E7EB' }}>
                 <label className="flex items-start gap-3 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={draft.agree}
-                    onChange={(e) => setDraft((d) => ({ ...d, agree: e.target.checked }))}
-                    className="w-6 h-6 mt-0.5 shrink-0 accent-[#0A8A7B]"
-                  />
+                  <input type="checkbox" checked={draft.agree} onChange={(e) => set('agree', e.target.checked)} className="w-6 h-6 mt-0.5 shrink-0 accent-[#0A8A7B]" />
                   <span className="text-[16px] font-bold text-gray-900 leading-snug">[필수] 건강 정보(민감정보) 수집·이용·제공에 동의해요</span>
                 </label>
                 <ul className="mt-3 space-y-1.5 text-[14px] text-gray-600 leading-relaxed list-disc pl-5">
@@ -343,7 +378,7 @@ function ConsultFlow({ resume, fromFind }: { resume: boolean; fromFind: boolean 
                   <li>
                     <b>보관</b>: 요청은 {CONSULT_DAYS}일 동안 받아요. 연결되지 않은 요청서는 그 뒤 30일 안에, 대화는 마지막 메시지 후 {CHAT_KEEP_DAYS}일이 지나면 지워져요. 언제든 직접 지울 수 있어요.
                   </li>
-                  <li>부모님 정보를 대신 적는 것이라면, 부모님께도 알리고 동의를 받아 주세요.</li>
+                  {draft.who !== 'self' && <li>가족 정보를 대신 적는 것이라면, 당사자께도 알리고 동의를 받아 주세요.</li>}
                   <li>동의하지 않을 수 있지만, 그러면 상담 요청을 보낼 수 없어요.</li>
                 </ul>
               </div>
@@ -353,8 +388,8 @@ function ConsultFlow({ resume, fromFind }: { resume: boolean; fromFind: boolean 
                 운동 지도 상담은 진료를 대신하지 않아요. 갑자기 생긴 마비·말 어눌함·심한 어지럼은 먼저 병원에 가 주세요. 위급하면 119.
               </p>
             </>,
-            <PrimaryButton onClick={submit} disabled={!draft.agree || busy || user === undefined}>
-              {busy ? '보내는 중...' : '무료 상담 요청 보내기'}
+            <PrimaryButton onClick={submit} disabled={!draft.area || !draft.agree || busy || user === undefined}>
+              {busy ? '보내는 중...' : !draft.area ? '동네를 먼저 찾아 주세요' : !draft.agree ? '동의에 체크해 주세요' : '무료 상담 요청 보내기'}
             </PrimaryButton>
           )}
           {needLogin && <LoginSheet onClose={() => setNeedLogin(false)} />}
@@ -372,9 +407,7 @@ function LoginSheet({ onClose }: { onClose: () => void }) {
         <p id="login-sheet-title" className="text-[21px] font-extrabold text-gray-900">
           보내기 전에 로그인해 주세요
         </p>
-        <p className="text-[16px] text-gray-600 mt-2 leading-relaxed">
-          수락한 전문가와 채팅하려면 로그인이 필요해요. 고르신 답은 그대로 남아 있어요.
-        </p>
+        <p className="text-[16px] text-gray-600 mt-2 leading-relaxed">수락한 전문가와 채팅하려면 로그인이 필요해요. 고르신 답은 그대로 남아 있어요.</p>
         <div className="mt-5">
           <KakaoLoginButton next="/consult/new?resume=1" label="카카오로 로그인하고 보내기" />
         </div>
@@ -386,4 +419,3 @@ function LoginSheet({ onClose }: { onClose: () => void }) {
     </div>
   )
 }
-

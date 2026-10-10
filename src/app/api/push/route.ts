@@ -14,7 +14,7 @@ const PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
 const PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY
 const SUBJECT = process.env.VAPID_SUBJECT || 'mailto:spacex2025@naver.com'
 
-const WHO: Record<string, string> = { mother: '어머님', father: '아버님', other: '가족분' }
+const WHO: Record<string, string> = { mother: '어머님', father: '아버님', spouse: '배우자', self: '본인', other: '가족' }
 
 interface Payload {
   title: string
@@ -80,7 +80,7 @@ export async function POST(req: NextRequest) {
     const recipient = toGuardian ? room.guardian_id : room.expert_user_id
     const t = room.therapists as unknown as { name: string } | null
     const c = room.consult_requests as unknown as { answers: { who?: string }; area_label: string } | null
-    const topic = c ? `${WHO[c.answers?.who ?? ''] ?? '가족분'} 상담` : '상담'
+    const topic = c ? `${WHO[c.answers?.who ?? ''] ?? '가족'} 상담` : '상담'
     const sent = await sendToUsers([recipient], {
       title: toGuardian ? `${t?.name ?? '전문가'}님의 새 메시지` : '보호자님의 새 메시지',
       body: toGuardian ? `${topic} · 눌러서 대화를 확인해 주세요` : `${topic}${c?.area_label ? ` (${c.area_label})` : ''} · 눌러서 대화를 확인해 주세요`,
@@ -120,7 +120,7 @@ export async function POST(req: NextRequest) {
     const ids = Array.isArray(targets) ? (targets as string[]).filter(Boolean) : []
     const sent = await sendToUsers(ids, {
       title: '근처에 새 상담 요청이 왔어요',
-      body: `${r.area_label} · ${WHO[(r.answers as { who?: string })?.who ?? ''] ?? '가족분'} 상담 · 먼저 수락한 3명까지 채팅할 수 있어요`,
+      body: `${r.area_label} · ${WHO[(r.answers as { who?: string })?.who ?? ''] ?? '가족'} 상담 · 먼저 수락한 3명까지 채팅할 수 있어요`,
       url: `/consult/${r.id}`,
       tag: `consult-${r.id}`,
     })

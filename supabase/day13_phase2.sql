@@ -228,7 +228,7 @@ declare
 begin
   if v_uid is null then raise exception 'login_required'; end if;
   if coalesce((p->>'agree')::boolean, false) is not true then raise exception 'consent_required'; end if;
-  if coalesce(p->>'who', '') not in ('mother','father','other')
+  if coalesce(p->>'who', '') not in ('mother','father','spouse','self','other')
     or coalesce(p->>'age', '') not in ('65plus','under65')
     or coalesce(p->>'mobility', '') not in ('independent','aid','assist','bed')
     or coalesce(p->>'fell', '') not in ('yes','no','unknown')
