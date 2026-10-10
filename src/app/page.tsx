@@ -9,6 +9,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import BottomNav from '@/components/BottomNav'
+import HomeActivity from '@/components/HomeActivity'
 import { saveDeviceCoords, setDeviceItem, useIsClient, useLocalStorageItem } from '@/lib/useDeviceStorage'
 
 interface Review {
@@ -141,6 +142,9 @@ export default function Home() {
           </svg>
         </Link>
       </div>
+
+      {/* 진행 중인 상담 (로그인 + 진행 중인 일이 있을 때만) */}
+      <HomeActivity />
 
       {/* 매칭 대시보드 */}
       <section className="px-5 pt-3">

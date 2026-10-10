@@ -8,6 +8,7 @@ import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { useAuthUser } from '@/lib/auth'
 import BottomNav from '@/components/BottomNav'
+import { PushPrompt } from '@/components/PushPrompt'
 import { Avatar, GuardianAvatar, LoginNeeded, Spinner, GREEN } from '@/components/ConsultParts'
 import { MAX_ACCEPT, ageText, consultTitle, listTime, type ConsultAnswers } from '@/lib/consult'
 
@@ -119,6 +120,8 @@ export default function ChatListPage() {
       ) : shown.length === 0 ? (
         <p className="px-5 pt-10 text-center text-[15px] text-gray-500">안 읽은 대화가 없어요.</p>
       ) : (
+        <>
+        <PushPrompt className="mx-5 mt-2" message="새 메시지가 오면 알림으로 알려 드릴까요?" />
         <ul className="pt-1">
           {shown.map((r) => {
             const isGuardian = r.role === 'guardian'
@@ -152,6 +155,7 @@ export default function ChatListPage() {
             )
           })}
         </ul>
+        </>
       )}
       {rooms && rooms.length > 0 && (
         <p className="px-5 pt-6 pb-2 text-[13px] text-gray-400 text-center">대화는 마지막 메시지 후 180일이 지나면 자동으로 지워져요.</p>

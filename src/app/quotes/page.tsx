@@ -9,6 +9,9 @@ import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { useAuthUser } from '@/lib/auth'
 import BottomNav from '@/components/BottomNav'
+import { PushPrompt } from '@/components/PushPrompt'
+import { INBOX_SEEN_KEY } from '@/components/HomeActivity'
+import { setDeviceItem } from '@/lib/useDeviceStorage'
 import { GuardianAvatar, StateChip, LoginNeeded, Spinner, GREEN, GREEN_DARK, GREEN_LIGHT } from '@/components/ConsultParts'
 import {
   MAX_ACCEPT, CONTACT_EMAIL, consultTitle, ageText, fetchMyExpert, isExpired, shortConditions, shortMobility, timeAgo, untilLabel,
@@ -209,6 +212,8 @@ function Inbox({ expert }: { expert: MyExpert }) {
         if (!alive) return
         setError(!!e)
         setRows(Array.isArray(data) ? (data as FeedRow[]) : [])
+        // 홈 '새 요청 n건'은 이 화면을 본 뒤에 온 요청만 센다
+        if (!e) setDeviceItem(INBOX_SEEN_KEY, new Date().toISOString())
       })
     run()
     window.addEventListener('focus', run)
@@ -240,6 +245,8 @@ function Inbox({ expert }: { expert: MyExpert }) {
           </div>
         )}
       </div>
+
+      <PushPrompt className="mx-5 mt-3" message="근처에 새 상담 요청이 오면 알림으로 알려 드릴까요?" />
 
       <div className="px-5 pt-3 flex gap-2">
         {(

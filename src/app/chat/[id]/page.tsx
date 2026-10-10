@@ -12,6 +12,7 @@ import { useAuthUser } from '@/lib/auth'
 import {
   CHAT_KEEP_DAYS, MESSAGE_MAX, ageText, clockTime, consultTitle, dayLabel, friendlyError, refreshNavBadges, type ConsultAnswers,
 } from '@/lib/consult'
+import { notifyPush } from '@/lib/push'
 import { TopBar, Avatar, GuardianAvatar, AnswerList, LoginNeeded, Spinner, GREEN, GREEN_DARK, GREEN_LIGHT } from '@/components/ConsultParts'
 
 interface RoomInfo {
@@ -218,6 +219,8 @@ function Room({ id, me }: { id: string; me: string }) {
       return
     }
     merge([data as Msg])
+    // 상대에게 '새 메시지' 알림 (대화방을 보고 있으면 알림이 뜨지 않음)
+    notifyPush({ type: 'message', message_id: (data as Msg).id })
   }
 
   const setBlock = async (on: boolean) => {

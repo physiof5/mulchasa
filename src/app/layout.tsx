@@ -12,7 +12,7 @@ export const metadata: Metadata = {
   appleWebApp: {
     capable: true,
     statusBarStyle: 'default',
-    title: '물찾사',
+    title: '보호가 필요해',
   },
   icons: {
     icon: '/icons/icon-192.png',
@@ -39,7 +39,7 @@ export default function RootLayout({
   <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-  <meta name="apple-mobile-web-app-title" content="물찾사" />
+  <meta name="apple-mobile-web-app-title" content="보호가 필요해" />
   <meta name="mobile-web-app-capable" content="yes" />
 </head>
       <body>{children}</body>

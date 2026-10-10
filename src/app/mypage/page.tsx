@@ -11,6 +11,7 @@ import {
 import MyProfileView from '@/components/MyProfileView'
 import GuestMy from '@/components/GuestMy'
 import KakaoLoginButton from '@/components/KakaoLoginButton'
+import { disablePush } from '@/lib/push'
 import AddressSearch, { type GeoResult } from '@/components/AddressSearch'
 import type { User } from '@supabase/supabase-js'
 import SquareCropper from '@/components/SquareCropper'
@@ -391,6 +392,8 @@ export default function MyPage() {
   }, [loadTherapist])
 
   const handleLogout = async () => {
+    // 이 기기로 이 계정 알림이 계속 오지 않도록 먼저 끔
+    await disablePush()
     await supabase.auth.signOut()
     setTherapist(null)
     setAuthUser(null)

@@ -13,6 +13,8 @@ import {
   MAX_ACCEPT, CONTACT_EMAIL, consultTitle, ageText, friendlyError, isExpired, timeAgo, untilLabel, refreshNavBadges,
   type ConsultRow,
 } from '@/lib/consult'
+import { notifyPush } from '@/lib/push'
+import { PushPrompt } from '@/components/PushPrompt'
 import { TopBar, Avatar, StateChip, AnswerList, LoginNeeded, Spinner, GREEN, GREEN_DARK, GREEN_LIGHT } from '@/components/ConsultParts'
 
 interface AcceptedRoom {
@@ -147,6 +149,9 @@ function OwnerView({ view, justSent, onChanged }: { view: Extract<View, { role: 
           </p>
         </div>
       )}
+      {(justSent || view.rooms.length === 0) && c.status === 'open' && (
+        <PushPrompt className="mx-5 mt-3" dismissible={!justSent} message="전문가가 수락하면 바로 알려 드릴까요?" />
+      )}
 
       <section className="mx-5 mt-4 rounded-2xl bg-white border border-gray-100 p-5">
         <div className="flex items-center gap-2">
@@ -259,6 +264,8 @@ function ExpertView({ view }: { view: Extract<View, { role: 'expert' }> }) {
       return
     }
     refreshNavBadges()
+    // 보호자에게 '상담 수락' 알림
+    notifyPush({ type: 'accept', room_id: data })
     router.push(`/chat/${data}`)
   }
 

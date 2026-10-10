@@ -5,6 +5,7 @@ import type { Metadata } from 'next'
 import type { ReactNode } from 'react'
 import Link from 'next/link'
 import BottomNav from '@/components/BottomNav'
+import { PushSettingRow } from '@/components/PushPrompt'
 import { LINKS, PHONES } from '@/lib/care'
 import { FORMS, FORM_CATEGORIES } from '@/lib/forms'
 import { MONTHLY_LIMIT, GRADE_OPTIONS, COPAY_OPTIONS, COST_BASIS, won, percent } from '@/lib/cost'
@@ -97,6 +98,10 @@ export default function SettingsPage() {
             </Link>
           ))}
         </div>
+      </Group>
+
+      <Group title="알림">
+        <PushSettingRow />
       </Group>
 
       <Group title="서비스">

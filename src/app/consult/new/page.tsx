@@ -12,6 +12,7 @@ import { useIsClient } from '@/lib/useDeviceStorage'
 import { FlowShell, Question, OptionButton, PrimaryButton, GREEN, GREEN_DARK, GREEN_LIGHT } from '@/components/QuestionFlow'
 import AddressSearch, { type GeoResult } from '@/components/AddressSearch'
 import KakaoLoginButton from '@/components/KakaoLoginButton'
+import { notifyPush } from '@/lib/push'
 import {
   WHO_OPTIONS, AGE_OPTIONS, MOBILITY_OPTIONS, CONDITION_OPTIONS, EXCLUSIVE_CONDITION, FALL_OPTIONS, PLACE_OPTIONS,
   honorific, parseSituation, readSituationRaw, type Condition,
@@ -149,6 +150,8 @@ function ConsultFlow({ resume, fromFind }: { resume: boolean; fromFind: boolean 
       return
     }
     clearConsultDraft()
+    // 근처 전문가에게 '새 상담 요청' 알림
+    notifyPush({ type: 'consult', consult_id: data })
     router.replace(`/consult/${data}?new=1`)
   }
 
