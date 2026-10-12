@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next'
 import './globals.css'
+import ModeGate from '@/components/ModeGate'
 
 // 앱 이름은 아직 정하지 않아, 블로그·유튜브 채널 이름 '보호가 필요해'를 임시로 씀
 export const metadata: Metadata = {
@@ -42,7 +43,10 @@ export default function RootLayout({
   <meta name="apple-mobile-web-app-title" content="보호가 필요해" />
   <meta name="mobile-web-app-capable" content="yes" />
 </head>
-      <body>{children}</body>
+      <body>
+        {/* 회원 모드 / 전문가 모드에 맞지 않는 화면이면 전환 안내 */}
+        <ModeGate>{children}</ModeGate>
+      </body>
     </html>
   )
 }

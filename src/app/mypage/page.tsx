@@ -12,6 +12,9 @@ import MyProfileView from '@/components/MyProfileView'
 import GuestMy from '@/components/GuestMy'
 import KakaoLoginButton from '@/components/KakaoLoginButton'
 import { disablePush } from '@/lib/push'
+import BottomNav from '@/components/BottomNav'
+import { PushSettingRow } from '@/components/PushPrompt'
+import { refreshMyExpert, setAppMode, storedMode } from '@/lib/mode'
 import AddressSearch, { type GeoResult } from '@/components/AddressSearch'
 import type { User } from '@supabase/supabase-js'
 import SquareCropper from '@/components/SquareCropper'
@@ -383,7 +386,13 @@ export default function MyPage() {
         const ok = await loadTherapist(session.user.id)
         if (!active) return
         const wantsEdit = new URLSearchParams(window.location.search).get('edit') === '1'
-        setStep(ok ? (wantsEdit ? 'edit' : 'view') : 'guest')
+        if (ok) {
+          // 전문가 가입 직후일 수 있으니 전문가 정보를 다시 읽고, 수정하러 온 경우 전문가 모드로
+          refreshMyExpert(true)
+          if (wantsEdit) setAppMode('expert')
+        }
+        // 전문가 → 지금 모드가 회원 모드면 회원 MY, 아니면 내 프로필
+        setStep(ok ? (wantsEdit ? 'edit' : storedMode() === 'member' ? 'guest' : 'view') : 'guest')
       }
       setChecking(false)
     }
@@ -394,6 +403,7 @@ export default function MyPage() {
   const handleLogout = async () => {
     // 이 기기로 이 계정 알림이 계속 오지 않도록 먼저 끔
     await disablePush()
+    setAppMode(null)
     await supabase.auth.signOut()
     setTherapist(null)
     setAuthUser(null)
@@ -512,7 +522,7 @@ export default function MyPage() {
     <main className="max-w-md mx-auto min-h-screen bg-white pb-24">
       <div className="sticky top-0 bg-white border-b border-gray-100 px-5 py-4 flex items-center gap-3 z-10">
         <button
-          onClick={() => (step === 'edit' ? (setStep('view'), window.scrollTo(0, 0)) : step === 'guest' && therapist ? setStep('view') : router.back())}
+          onClick={() => (step === 'edit' ? (setStep('view'), window.scrollTo(0, 0)) : router.back())}
           aria-label="뒤로"
           className="text-gray-600 text-xl"
         >
@@ -524,7 +534,12 @@ export default function MyPage() {
           {step === 'edit' && '프로필 수정'}
         </h1>
         {step === 'view' && (
-          <button onClick={() => { setStep('guest'); window.scrollTo(0, 0) }} className="text-xs font-semibold text-[#0F6E56] mr-2">보호자 화면</button>
+          <button
+            onClick={() => { setAppMode('member'); setStep('guest'); window.scrollTo(0, 0) }}
+            className="min-h-[36px] px-2.5 rounded-lg border border-[#BFE3DC] bg-[#F6FBFA] text-xs font-bold text-[#0F6E56] mr-1"
+          >
+            회원 모드로 전환
+          </button>
         )}
         {(step === 'view' || step === 'edit') && (
           <button onClick={handleLogout} className="text-xs text-gray-400">로그아웃</button>
@@ -546,11 +561,31 @@ export default function MyPage() {
         />
       )}
 
+      {/* 전문가 모드 MY — 알림·도움말 */}
+      {!checking && step === 'view' && therapist && (
+        <section className="px-5 pt-8">
+          <h2 className="text-[15px] font-bold text-gray-500 mb-2">설정</h2>
+          <div className="bg-white rounded-2xl border border-gray-100 divide-y divide-gray-100 overflow-hidden">
+            <PushSettingRow />
+            <a href="mailto:spacex2025@naver.com" className="flex items-center min-h-[56px] px-4 text-[16px] text-gray-800">
+              <span className="flex-1">문의하기</span>
+              <span className="text-gray-300" aria-hidden="true">›</span>
+            </a>
+            <a href="/privacy" className="flex items-center min-h-[56px] px-4 text-[16px] text-gray-800">
+              <span className="flex-1">개인정보처리방침</span>
+              <span className="text-gray-300" aria-hidden="true">›</span>
+            </a>
+          </div>
+          {/* 아래 '프로필 수정' 버튼에 가리지 않게 */}
+          <div className="h-24" aria-hidden="true" />
+        </section>
+      )}
+
       {!checking && step === 'guest' && authUser && (
         <GuestMy
           user={authUser}
           isExpert={!!therapist}
-          onExpertMode={() => { setStep('view'); window.scrollTo(0, 0) }}
+          onExpertMode={() => { setAppMode('expert'); setStep('view'); window.scrollTo(0, 0) }}
           onLogout={handleLogout}
         />
       )}
@@ -638,7 +673,7 @@ export default function MyPage() {
                     </button>
                   ))}
                 </div>
-                <p className="text-xs text-gray-400 mt-2">📍 아래 주소에서 이 거리 안에 사는 보호자에게 보여요</p>
+                <p className="text-xs text-gray-400 mt-2">📍 아래 주소에서 이 거리 안에 사는 회원에게 보여요</p>
               </div>
             )}
 
@@ -827,7 +862,7 @@ export default function MyPage() {
             </div>
 
             <div>
-              <label className="text-sm font-bold text-gray-700 block mb-2">자기소개 <span className="text-xs text-gray-400 font-normal">(30자 이상이면 보호자에게 더 잘 보여요)</span></label>
+              <label className="text-sm font-bold text-gray-700 block mb-2">자기소개 <span className="text-xs text-gray-400 font-normal">(30자 이상이면 회원에게 더 잘 보여요)</span></label>
               <textarea value={intro} onChange={(e) => setIntro(e.target.value)} rows={6} className="w-full p-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#0A8A7B] resize-none" />
               <p className="text-xs text-gray-400 mt-1 text-right">{intro.length}자</p>
               {introBanned && <p className="text-xs text-red-500 mt-1 leading-relaxed">{bannedMessage(introBanned)}</p>}
@@ -839,7 +874,7 @@ export default function MyPage() {
                 질문답변 <span className="text-xs text-gray-400 font-normal">(선택)</span>
               </p>
               <p className="text-xs text-gray-500 mt-1 mb-4 leading-relaxed">
-                보호자가 연락하기 전에 자주 묻는 것들이에요. 답을 적은 질문만 프로필 &lsquo;질문답변&rsquo;에 보여요.
+                회원이 연락하기 전에 자주 묻는 것들이에요. 답을 적은 질문만 프로필 &lsquo;질문답변&rsquo;에 보여요.
               </p>
               <div className="space-y-4">
                 {FAQ_QUESTIONS.map(f => {
@@ -871,7 +906,7 @@ export default function MyPage() {
       </div>
 
       {step === 'view' && (
-        <div className="fixed bottom-0 left-0 right-0 max-w-md mx-auto px-5 py-4 bg-white border-t border-gray-100 z-20">
+        <div className="fixed left-0 right-0 max-w-md mx-auto px-5 py-3 bg-white border-t border-gray-100 z-20" style={{ bottom: 'calc(60px + env(safe-area-inset-bottom))' }}>
           <button onClick={() => { setNotice(''); setStep('edit'); window.scrollTo(0, 0) }}
             className="w-full py-4 rounded-2xl font-bold text-base bg-[#0A8A7B] text-white active:scale-[0.98] transition-all">
             프로필 수정
@@ -894,6 +929,8 @@ export default function MyPage() {
           </button>
         </div>
       )}
+      {/* 하단 바 — 프로필 수정 중에는 숨김 */}
+      {!checking && step !== 'edit' && <BottomNav />}
       {cropQueue.length > 0 && (
         <SquareCropper
           key={`${cropQueue[0].file.name}-${cropQueue.length}`}

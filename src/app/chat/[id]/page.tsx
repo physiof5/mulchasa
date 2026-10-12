@@ -1,6 +1,6 @@
 'use client'
 
-// 채팅방 — 보호자 ↔ 상담을 수락한 전문가
+// 채팅방 — 회원 ↔ 상담을 수락한 전문가 (열면 이 대화에 맞는 모드로 바뀜)
 // · 새 메시지는 실시간(Supabase Realtime)으로 받고, 혹시 끊겨도 8초마다 한 번 더 확인
 // · 신고(최근 대화 50개 함께 보관) · 차단(두 사람 모두 보낼 수 없음, 차단한 사람만 풀 수 있음)
 // · 대화는 마지막 메시지 후 180일 뒤 자동 삭제
@@ -13,6 +13,7 @@ import {
   CHAT_KEEP_DAYS, MESSAGE_MAX, ageText, clockTime, consultTitle, dayLabel, friendlyError, refreshNavBadges, type ConsultAnswers,
 } from '@/lib/consult'
 import { notifyPush } from '@/lib/push'
+import { setAppMode, storedMode, useAppMode } from '@/lib/mode'
 import { TopBar, Avatar, GuardianAvatar, AnswerList, LoginNeeded, Spinner, GREEN, GREEN_DARK, GREEN_LIGHT } from '@/components/ConsultParts'
 
 interface RoomInfo {
@@ -188,6 +189,15 @@ function Room({ id, me }: { id: string; me: string }) {
     if (el && stickRef.current) el.scrollTop = el.scrollHeight
   }, [msgs.length, loaded, info])
 
+  // 이 대화에 맞는 모드로 (알림을 눌러 들어온 경우 등) — 전문가 대화면 전문가 모드, 내 상담이면 회원 모드
+  const { canExpert } = useAppMode()
+  const role = info?.role
+  useEffect(() => {
+    if (!role || !canExpert) return
+    const target = role === 'expert' ? 'expert' : 'member'
+    if (storedMode() !== target) setAppMode(target)
+  }, [role, canExpert])
+
   // 입력 칸은 글 길이에 맞춰 최대 5줄까지 늘어남
   useEffect(() => {
     const el = inputRef.current
@@ -256,9 +266,9 @@ function Room({ id, me }: { id: string; me: string }) {
 
   const isGuardian = info.role === 'guardian'
   const t = info.therapist
-  const partnerName = isGuardian ? t.name : '보호자'
-  const title = isGuardian ? t.name : info.consult ? `${consultTitle(info.consult.answers)} (${ageText(info.consult.answers.age)})` : '보호자'
-  const sub = isGuardian ? `물리치료사${t.years ? ` · 경력 ${t.years}년` : ''}` : `보호자${info.consult?.area_label ? ` · ${info.consult.area_label}` : ''}`
+  const partnerName = isGuardian ? t.name : '회원'
+  const title = isGuardian ? t.name : info.consult ? `${consultTitle(info.consult.answers)} (${ageText(info.consult.answers.age)})` : '회원'
+  const sub = isGuardian ? `물리치료사${t.years ? ` · 경력 ${t.years}년` : ''}` : `회원${info.consult?.area_label ? ` · ${info.consult.area_label}` : ''}`
   const myTexts = msgs.filter((m) => m.sender_id === me && m.kind === 'text').length
   const last = msgs[msgs.length - 1]
   const waiting = !!last && last.kind === 'text' && last.sender_id !== me
@@ -409,6 +419,7 @@ function Room({ id, me }: { id: string; me: string }) {
         <Sheet onClose={() => setMenu(false)} title="대화 메뉴">
           {isGuardian && <SheetLink href={`/therapist/${t.id}`} label="전문가 프로필 보기" />}
           {info.consult && <SheetLink href={`/consult/${info.consult.id}`} label="요청서 보기" />}
+          {!isGuardian && <SheetLink href={`/schedule?room=${info.id}`} label="스케줄에 일정 잡기" />}
           <SheetButton
             label="신고하기"
             danger

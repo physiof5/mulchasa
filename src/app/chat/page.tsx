@@ -1,6 +1,7 @@
 'use client'
 
-// 하단 탭 '채팅' — 상담을 수락한 전문가(보호자 화면) / 수락한 상담의 보호자(전문가 화면)와의 대화 목록
+// 하단 탭 '채팅' — 회원 모드: 상담을 수락한 전문가와의 대화 / 전문가 모드: 수락한 상담의 회원과의 대화
+// 지금 모드의 대화만 보여 주고, 다른 모드에 안 읽은 메시지가 있으면 아래에 알려 준다.
 // 새 메시지가 오면 실시간으로 목록을 다시 읽고, 창으로 돌아올 때도 다시 읽는다.
 
 import { useEffect, useState } from 'react'
@@ -11,6 +12,7 @@ import BottomNav from '@/components/BottomNav'
 import { PushPrompt } from '@/components/PushPrompt'
 import { Avatar, GuardianAvatar, LoginNeeded, Spinner, GREEN } from '@/components/ConsultParts'
 import { MAX_ACCEPT, ageText, consultTitle, listTime, type ConsultAnswers } from '@/lib/consult'
+import { setAppMode, useAppMode } from '@/lib/mode'
 
 interface RoomRow {
   id: string
@@ -25,7 +27,11 @@ interface RoomRow {
 
 export default function ChatListPage() {
   const user = useAuthUser()
-  const [rooms, setRooms] = useState<RoomRow[] | null>(null)
+  const [allRooms, setAllRooms] = useState<RoomRow[] | null>(null)
+  const { mode, canExpert } = useAppMode()
+  const myRole: RoomRow['role'] = mode === 'expert' ? 'expert' : 'guardian'
+  const rooms = allRooms ? allRooms.filter((r) => r.role === myRole) : null
+  const otherUnread = (allRooms ?? []).filter((r) => r.role !== myRole).reduce((n, r) => n + r.unread, 0)
   const [failed, setFailed] = useState(false)
   const [onlyUnread, setOnlyUnread] = useState(false)
 
@@ -36,7 +42,7 @@ export default function ChatListPage() {
       supabase.rpc('my_chat_rooms').then(({ data, error }) => {
         if (!alive) return
         setFailed(!!error)
-        setRooms(Array.isArray(data) ? (data as RoomRow[]) : [])
+        setAllRooms(Array.isArray(data) ? (data as RoomRow[]) : [])
       })
     load()
     // 내 대화방의 새 메시지만 전달됨 (읽기 권한 규칙)
@@ -109,12 +115,14 @@ export default function ChatListPage() {
           </div>
           <p className="text-[20px] font-extrabold text-gray-900 mt-5">아직 대화가 없어요</p>
           <p className="text-[15px] text-gray-600 mt-2 leading-relaxed">
-            상담 요청을 보내면 수락한 전문가와의 대화방이 여기에 생겨요.
-            <br />
-            전문가라면 &lsquo;받은 요청&rsquo;에서 상담을 수락해 보세요.
+            {mode === 'expert' ? '받은 요청에서 상담을 수락하면 회원과의 대화방이 여기에 생겨요.' : '상담 요청을 보내면 수락한 전문가와의 대화방이 여기에 생겨요.'}
           </p>
-          <Link href="/consult/new" className="mt-7 inline-flex min-h-[52px] px-6 rounded-xl text-white text-[16px] font-bold items-center" style={{ background: GREEN }}>
-            무료 상담 요청하기
+          <Link
+            href={mode === 'expert' ? '/quotes' : '/consult/new'}
+            className="mt-7 inline-flex min-h-[52px] px-6 rounded-xl text-white text-[16px] font-bold items-center"
+            style={{ background: GREEN }}
+          >
+            {mode === 'expert' ? '받은 요청 보기' : '무료 상담 요청하기'}
           </Link>
         </section>
       ) : shown.length === 0 ? (
@@ -125,10 +133,10 @@ export default function ChatListPage() {
         <ul className="pt-1">
           {shown.map((r) => {
             const isGuardian = r.role === 'guardian'
-            const title = isGuardian ? r.therapist.name : r.consult ? `${consultTitle(r.consult)} (${ageText(r.consult.age)})` : '보호자'
+            const title = isGuardian ? r.therapist.name : r.consult ? `${consultTitle(r.consult)} (${ageText(r.consult.age)})` : '회원'
             const sub = isGuardian
               ? `물리치료사${r.therapist.years ? ` · 경력 ${r.therapist.years}년` : ''}${r.consult ? ` · ${consultTitle(r.consult)}` : ''}`
-              : `보호자${r.consult?.area_label ? ` · ${r.consult.area_label}` : ''}`
+              : `회원${r.consult?.area_label ? ` · ${r.consult.area_label}` : ''}`
             return (
               <li key={r.id}>
                 <Link href={`/chat/${r.id}`} className="flex gap-3.5 px-5 py-4 active:bg-gray-50">
@@ -156,6 +164,20 @@ export default function ChatListPage() {
           })}
         </ul>
         </>
+      )}
+      {canExpert && otherUnread > 0 && (
+        <button
+          type="button"
+          onClick={() => setAppMode(mode === 'expert' ? 'member' : 'expert')}
+          className="mx-5 mt-6 w-[calc(100%-2.5rem)] min-h-[52px] px-4 rounded-xl border border-gray-200 bg-white flex items-center gap-2 text-left"
+        >
+          <span className="flex-1 text-[15px] text-gray-700">
+            {mode === 'expert' ? '회원 모드' : '전문가 모드'} 대화에 안 읽은 메시지 <b>{otherUnread}개</b>가 있어요
+          </span>
+          <span className="text-[14px] font-bold shrink-0" style={{ color: GREEN }}>
+            전환 ›
+          </span>
+        </button>
       )}
       {rooms && rooms.length > 0 && (
         <p className="px-5 pt-6 pb-2 text-[13px] text-gray-400 text-center">대화는 마지막 메시지 후 180일이 지나면 자동으로 지워져요.</p>

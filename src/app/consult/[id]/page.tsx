@@ -1,7 +1,8 @@
 'use client'
 
 // 상담 요청서 한 건
-// · 보호자(본인): 수락한 전문가(최대 3명)와 채팅 바로가기, 요청 마감·삭제
+// · 회원(요청한 본인): 수락한 전문가(최대 3명)와 채팅 바로가기, 요청 마감·삭제
+// 열면 화면에 맞는 모드로 바뀐다(내 요청 = 회원 모드, 받은 요청 = 전문가 모드).
 // · 전문가: 요청 내용 열람 → (구독 중 + 자리 있음) 수락하고 채팅 시작 / 3명이 차면 열람만
 
 import { use, useEffect, useState, type ReactNode } from 'react'
@@ -14,6 +15,7 @@ import {
   type ConsultRow,
 } from '@/lib/consult'
 import { notifyPush } from '@/lib/push'
+import { setAppMode, storedMode, useAppMode } from '@/lib/mode'
 import { PushPrompt } from '@/components/PushPrompt'
 import { TopBar, Avatar, StateChip, AnswerList, LoginNeeded, Spinner, GREEN, GREEN_DARK, GREEN_LIGHT } from '@/components/ConsultParts'
 
@@ -49,6 +51,15 @@ export default function ConsultDetailPage({
   const [view, setView] = useState<View | null | undefined>(undefined)
   const [loadError, setLoadError] = useState('')
   const [reload, setReload] = useState(0)
+  const { canExpert } = useAppMode()
+  const viewRole = view ? view.role : null
+
+  // 화면에 맞는 모드로 (알림을 눌러 들어온 경우 등)
+  useEffect(() => {
+    if (!viewRole || !canExpert) return
+    const target = viewRole === 'expert' ? 'expert' : 'member'
+    if (storedMode() !== target) setAppMode(target)
+  }, [viewRole, canExpert])
 
   useEffect(() => {
     if (!user) return
@@ -110,7 +121,7 @@ function Dots({ count }: { count: number }) {
   )
 }
 
-// ── 보호자 화면 ──
+// ── 회원(요청한 사람) 화면 ──
 function OwnerView({ view, justSent, onChanged }: { view: Extract<View, { role: 'owner' }>; justSent: boolean; onChanged: () => void }) {
   const router = useRouter()
   const c = view.consult
@@ -264,7 +275,7 @@ function ExpertView({ view }: { view: Extract<View, { role: 'expert' }> }) {
       return
     }
     refreshNavBadges()
-    // 보호자에게 '상담 수락' 알림
+    // 회원에게 '상담 수락' 알림
     notifyPush({ type: 'accept', room_id: data })
     router.push(`/chat/${data}`)
   }
@@ -338,7 +349,7 @@ function ExpertView({ view }: { view: Extract<View, { role: 'expert' }> }) {
         {action}
         {error && <p className="text-[15px] text-red-500 mt-3">{error}</p>}
         <p className="text-[13px] text-gray-500 mt-4 leading-relaxed">
-          운동 지도 범위에서 안내해 주세요. 진단·치료·효과 보장은 약속하지 않아요. 연락처와 비용은 보호자가 원할 때 채팅에서 안내해 주세요.
+          운동 지도 범위에서 안내해 주세요. 진단·치료·효과 보장은 약속하지 않아요. 연락처와 비용은 회원이 원할 때 채팅에서 안내해 주세요.
         </p>
       </section>
     </>

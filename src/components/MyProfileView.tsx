@@ -122,7 +122,7 @@ export default function MyProfileView({
               className="inline-block mt-1.5 text-[13px] font-bold px-2.5 py-1 rounded-full"
               style={verified ? { background: '#E8F6F4', color: GREEN_DARK } : { background: '#FEF3C7', color: '#92400E' }}
             >
-              {verified ? '✓ 면허 인증 · 보호자에게 공개 중' : '승인 대기 중 · 승인되면 공개돼요'}
+              {verified ? '✓ 면허 인증 · 회원에게 공개 중' : '승인 대기 중 · 승인되면 공개돼요'}
             </span>
           </div>
         </div>
@@ -238,7 +238,7 @@ export default function MyProfileView({
       <section id="my-faq" className="px-5 pt-8">
         <h3 className="text-[18px] font-extrabold text-gray-900">질문답변</h3>
         {faqItems.length === 0 ? (
-          <p className="text-[15px] text-gray-400 mt-2">답을 적은 질문만 보호자에게 보여요. 프로필 수정에서 적어 주세요.</p>
+          <p className="text-[15px] text-gray-400 mt-2">답을 적은 질문만 회원에게 보여요. 프로필 수정에서 적어 주세요.</p>
         ) : (
           <div className="space-y-5 mt-3">
             {faqItems.map((item) => (
@@ -257,7 +257,7 @@ export default function MyProfileView({
             href={`/therapist/${therapist.id}`}
             className="w-full min-h-[52px] rounded-xl border border-gray-200 bg-white text-[16px] font-semibold text-gray-700 flex items-center justify-center"
           >
-            보호자에게 보이는 화면 보기 ›
+            회원에게 보이는 화면 보기 ›
           </Link>
         </div>
       )}

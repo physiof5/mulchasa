@@ -5,7 +5,7 @@
 export const WORK_TYPES = [
   { value: 'center_owner', label: '운동센터 운영', desc: '직접 운영하는 운동센터가 있어요' },
   { value: 'center_staff', label: '운동센터 소속', desc: '운동센터에 소속되어 지도해요' },
-  { value: 'freelance_visit', label: '프리랜서 (방문)', desc: '보호자 댁으로 찾아가 운동을 지도해요' },
+  { value: 'freelance_visit', label: '프리랜서 (방문)', desc: '회원 댁으로 찾아가 운동을 지도해요' },
   { value: 'part_time', label: '파트타임 가능', desc: '육아·본업과 함께, 정해진 시간만 활동해요' },
 ]
 

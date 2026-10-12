@@ -22,6 +22,8 @@ export const CHAT_KEEP_DAYS = 180
 export const NOTE_MAX = 500
 export const MESSAGE_MAX = 1000
 export const CONTACT_EMAIL = 'spacex2025@naver.com'
+/** 전문가가 '받은 요청'을 마지막으로 본 시각 (홈의 '새 요청 n건' 계산용, 이 기기에만) */
+export const INBOX_SEEN_KEY = 'inbox_seen_at'
 
 /** 상담 대상 — 맞춤 찾기(어머님·아버님·다른 가족)에 배우자·본인을 더함 */
 export type ConsultWho = 'mother' | 'father' | 'spouse' | 'self' | 'other'

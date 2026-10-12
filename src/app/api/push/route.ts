@@ -4,7 +4,7 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin'
 
 // 알림 보내기 (웹 푸시) — 화면이 '방금 이런 일이 있었어요'라고 알려 주면 서버가 확인하고 상대에게 보낸다.
 //  · message: 내가 방금 보낸 메시지 → 대화 상대에게
-//  · accept : 내가 방금 수락한 상담 → 보호자에게
+//  · accept : 내가 방금 수락한 상담 → 요청한 회원에게
 //  · consult: 내가 방금 낸 상담 요청 → 근처 승인 전문가에게
 // 같은 일로 두 번 보내지 않도록 표(pushed_at 등)에 표시한다. 알림 글에는 건강 정보·대화 내용을 넣지 않는다.
 
@@ -82,7 +82,7 @@ export async function POST(req: NextRequest) {
     const c = room.consult_requests as unknown as { answers: { who?: string }; area_label: string } | null
     const topic = c ? `${WHO[c.answers?.who ?? ''] ?? '가족'} 상담` : '상담'
     const sent = await sendToUsers([recipient], {
-      title: toGuardian ? `${t?.name ?? '전문가'}님의 새 메시지` : '보호자님의 새 메시지',
+      title: toGuardian ? `${t?.name ?? '전문가'}님의 새 메시지` : '회원님의 새 메시지',
       body: toGuardian ? `${topic} · 눌러서 대화를 확인해 주세요` : `${topic}${c?.area_label ? ` (${c.area_label})` : ''} · 눌러서 대화를 확인해 주세요`,
       url: `/chat/${room.id}`,
       tag: `room-${room.id}`,

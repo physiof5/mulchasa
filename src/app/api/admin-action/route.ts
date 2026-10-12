@@ -156,7 +156,7 @@ async function sendApprovalSms(name: string, phone: string): Promise<{ sent: boo
     const messageService = new SolapiMessageService(process.env.SOLAPI_API_KEY!, process.env.SOLAPI_API_SECRET!)
     const text =
       `[보호가 필요해] ${name}님, 물리치료사 면허 확인이 끝나 전문가 승인이 완료되었어요.\n` +
-      `이제 보호자 검색에 프로필이 보여요. MY에서 사진·소개·오픈채팅을 채워 주세요.`
+      `이제 회원 검색에 프로필이 보여요. MY에서 사진·소개·오픈채팅을 채워 주세요.`
     await messageService.send({
       // 솔라피는 하이픈 없는 01012345678 형식 요구
       to: String(phone).replace(/[^0-9]/g, ''),

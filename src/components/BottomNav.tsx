@@ -1,13 +1,15 @@
 'use client'
 
-// 하단 탭: 홈 · 전문가 찾기 · 받은 견적 · 채팅 · 둘러보기
-// (내 프로필은 홈 오른쪽 위 사람 아이콘 → MY)
-// 승인된 전문가에게는 '받은 견적' 자리가 '받은 요청'으로 보이고, '채팅'에는 안 읽은 메시지 수가 붙는다.
+// 하단 탭 — 모드마다 다르게
+// · 회원 모드:   홈 · 전문가 찾기 · 받은 견적 · 채팅 · 둘러보기
+// · 전문가 모드: 홈 · 받은 요청 · 채팅 · 스케줄 · 크루   (프로필·구독은 홈 오른쪽 위 → MY / 홈 메뉴)
+// '채팅'에는 지금 모드의 안 읽은 메시지 수가 붙는다.
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useEffect, useState, type ReactNode } from 'react'
 import { supabase } from '@/lib/supabase'
 import { NAV_REFRESH_EVENT } from '@/lib/consult'
+import { useAppMode } from '@/lib/mode'
 
 const GREEN = '#0A8A7B'
 
@@ -27,6 +29,13 @@ const ICONS: Record<string, ReactNode> = {
       <path d="M9 8h6M9 12h6M9 16h3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
     </>
   ),
+  // 받은 편지함 (전문가: 받은 요청)
+  inbox: (
+    <>
+      <path d="M4 13 6.5 5h11L20 13v6a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-6Z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+      <path d="M4 13h4.5l1 2.5h5l1-2.5H20" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+    </>
+  ),
   // 말풍선
   chat: (
     <>
@@ -42,13 +51,34 @@ const ICONS: Record<string, ReactNode> = {
       <path d="M8 8h6M8 12h6M8 16h4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
     </>
   ),
+  // 달력
+  schedule: (
+    <>
+      <rect x="3.5" y="5" width="17" height="15.5" rx="2" stroke="currentColor" strokeWidth="2" />
+      <path d="M3.5 10h17M8 3v4M16 3v4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <path d="M8 14h3" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
+    </>
+  ),
+  // 사람 셋 (크루)
+  crew: (
+    <>
+      <circle cx="12" cy="8" r="3" stroke="currentColor" strokeWidth="2" />
+      <path d="M6.5 20c.6-3.2 2.9-5 5.5-5s4.9 1.8 5.5 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <path d="M5 11.5a2.2 2.2 0 1 1 .6-4.3M19 11.5a2.2 2.2 0 1 0-.6-4.3M2.5 17c.3-1.7 1.3-2.9 2.8-3.4M21.5 17c-.3-1.7-1.3-2.9-2.8-3.4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </>
+  ),
+}
+
+interface RoomLite {
+  role: 'guardian' | 'expert'
+  unread: number
 }
 
 // 탭을 옮길 때마다 서버에 묻지 않도록 20초 동안 기억
-let cache: { at: number; userId: string; expert: boolean; unread: number } | null = null
+let cache: { at: number; userId: string; member: number; expert: number } | null = null
 
-function useNavBadges(): { expert: boolean; unread: number } {
-  const [state, setState] = useState(() => (cache ? { expert: cache.expert, unread: cache.unread } : { expert: false, unread: 0 }))
+function useUnreadByMode(): { member: number; expert: number } {
+  const [state, setState] = useState(() => (cache ? { member: cache.member, expert: cache.expert } : { member: 0, expert: 0 }))
 
   useEffect(() => {
     let alive = true
@@ -57,18 +87,18 @@ function useNavBadges(): { expert: boolean; unread: number } {
       const uid = data.session?.user.id
       if (!uid) {
         cache = null
-        if (alive) setState({ expert: false, unread: 0 })
+        if (alive) setState({ member: 0, expert: 0 })
         return
       }
       if (!force && cache && cache.userId === uid && Date.now() - cache.at < 20_000) {
-        if (alive) setState({ expert: cache.expert, unread: cache.unread })
+        if (alive) setState({ member: cache.member, expert: cache.expert })
         return
       }
-      const [ex, un] = await Promise.all([supabase.rpc('my_expert'), supabase.rpc('my_unread_total')])
-      const expert = !!(ex.data && typeof ex.data === 'object' && (ex.data as { verified?: boolean }).verified)
-      const unread = typeof un.data === 'number' ? un.data : 0
-      cache = { at: Date.now(), userId: uid, expert, unread }
-      if (alive) setState({ expert, unread })
+      const { data: rooms } = await supabase.rpc('my_chat_rooms')
+      const list: RoomLite[] = Array.isArray(rooms) ? (rooms as RoomLite[]) : []
+      const sum = (role: RoomLite['role']) => list.filter((r) => r.role === role).reduce((n, r) => n + (r.unread || 0), 0)
+      cache = { at: Date.now(), userId: uid, member: sum('guardian'), expert: sum('expert') }
+      if (alive) setState({ member: cache.member, expert: cache.expert })
     }
     load(false)
     const refresh = () => load(true)
@@ -86,29 +116,44 @@ function useNavBadges(): { expert: boolean; unread: number } {
   return state
 }
 
+interface Tab {
+  key: string
+  icon: string
+  label: string
+  href: string
+  active: boolean
+  badge?: number
+}
+
 export default function BottomNav() {
   const pathname = usePathname() || '/'
-  const { expert, unread } = useNavBadges()
+  const { mode } = useAppMode()
+  const unread = useUnreadByMode()
+  const on = (...prefixes: string[]) => prefixes.some((p) => pathname === p || pathname.startsWith(p + '/'))
 
-  const tabs = [
-    { key: 'home', label: '홈', href: '/', active: pathname === '/' },
-    { key: 'experts', label: '전문가 찾기', href: '/experts', active: pathname.startsWith('/experts') || pathname.startsWith('/search') || pathname.startsWith('/centers') },
-    { key: 'quotes', label: expert ? '받은 요청' : '받은 견적', href: '/quotes', active: pathname.startsWith('/quotes') || pathname.startsWith('/consult') },
-    { key: 'chat', label: '채팅', href: '/chat', active: pathname.startsWith('/chat'), badge: unread },
-    {
-      key: 'browse',
-      label: '둘러보기',
-      href: '/browse',
-      active: pathname.startsWith('/browse') || pathname.startsWith('/magazine') || pathname.startsWith('/check') || pathname.startsWith('/settings/forms'),
-    },
-  ]
+  const tabs: Tab[] =
+    mode === 'expert'
+      ? [
+          { key: 'home', icon: 'home', label: '홈', href: '/', active: pathname === '/' || on('/subscription') },
+          { key: 'inbox', icon: 'inbox', label: '받은 요청', href: '/quotes', active: on('/quotes', '/consult') },
+          { key: 'chat', icon: 'chat', label: '채팅', href: '/chat', active: on('/chat'), badge: unread.expert },
+          { key: 'schedule', icon: 'schedule', label: '스케줄', href: '/schedule', active: on('/schedule') },
+          { key: 'crew', icon: 'crew', label: '크루', href: '/crew', active: on('/crew') },
+        ]
+      : [
+          { key: 'home', icon: 'home', label: '홈', href: '/', active: pathname === '/' },
+          { key: 'experts', icon: 'experts', label: '전문가 찾기', href: '/experts', active: on('/experts', '/search', '/centers') },
+          { key: 'quotes', icon: 'quotes', label: '받은 견적', href: '/quotes', active: on('/quotes', '/consult') },
+          { key: 'chat', icon: 'chat', label: '채팅', href: '/chat', active: on('/chat'), badge: unread.member },
+          { key: 'browse', icon: 'browse', label: '둘러보기', href: '/browse', active: on('/browse', '/magazine', '/check', '/settings/forms') },
+        ]
 
   return (
     <>
       <nav
         className="max-w-md mx-auto fixed bottom-0 left-0 right-0 z-30 bg-white border-t border-gray-100 flex"
         style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
-        aria-label="주요 메뉴"
+        aria-label={mode === 'expert' ? '전문가 모드 메뉴' : '주요 메뉴'}
       >
         {tabs.map((t) => (
           <Link
@@ -120,7 +165,7 @@ export default function BottomNav() {
           >
             <span className="relative">
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                {ICONS[t.key]}
+                {ICONS[t.icon]}
               </svg>
               {!!t.badge && t.badge > 0 && (
                 <span className="absolute -top-1.5 left-3.5 min-w-[18px] h-[18px] px-1 rounded-full bg-[#F04452] text-white text-[11px] font-bold leading-[18px] text-center">

@@ -1,6 +1,6 @@
 'use client'
 
-// 홈 — 매칭에 집중한 대시보드
+// 홈 — 회원 모드: 매칭에 집중한 대시보드 / 전문가 모드: 업무 홈(ExpertHome)
 // 전문가 찾기(내 주변 거리순) · 상담 요청(무료) · 센터 찾기(지도) · 방문 PT 견적 받기(10회 기준)
 // 정보성 자료(제도 소식·서식·자가진단)는 하단 '둘러보기' 탭으로 옮김
 
@@ -10,6 +10,8 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import BottomNav from '@/components/BottomNav'
 import HomeActivity from '@/components/HomeActivity'
+import ExpertHome from '@/components/ExpertHome'
+import { useAppMode } from '@/lib/mode'
 import { saveDeviceCoords, setDeviceItem, useIsClient, useLocalStorageItem } from '@/lib/useDeviceStorage'
 
 interface Review {
@@ -35,6 +37,7 @@ const NEURO_TAG = '신경계 재활 운동'
 export default function Home() {
   const router = useRouter()
   const isClient = useIsClient()
+  const { mode } = useAppMode()
   const locationSet = useLocalStorageItem('mulchasa_location_set')
   const lat = useLocalStorageItem('mulchasa_lat')
   const [showOnboarding, setShowOnboarding] = useState(false)
@@ -89,6 +92,9 @@ export default function Home() {
   const goPurpose = (tag: string) => router.push(`/experts?purpose=${encodeURIComponent(tag)}`)
 
   if (!isClient) return <main className="max-w-md mx-auto min-h-screen bg-gray-50" />
+
+  // 전문가 모드 → 업무 홈
+  if (mode === 'expert') return <ExpertHome />
 
   if (onboarding) {
     return (
@@ -251,7 +257,7 @@ export default function Home() {
         <div className="p-5 rounded-2xl border" style={{ background: 'linear-gradient(to bottom right, #E8F6F4, #ffffff)', borderColor: 'rgba(10,138,123,0.1)' }}>
           <p className="text-[16px] font-bold text-gray-900 mb-1">물리치료사이신가요?</p>
           <p className="text-[14px] text-gray-500 leading-relaxed mb-4">
-            운동센터 운영·소속, 프리랜서 방문, 육아와 함께하는 파트타임까지. 면허 확인 후 보호자와 직접 연결돼요.
+            운동센터 운영·소속, 프리랜서 방문, 육아와 함께하는 파트타임까지. 면허 확인 후 회원과 직접 연결돼요.
           </p>
           <Link href="/register" className="w-full min-h-[48px] bg-white border rounded-xl font-bold text-[15px] flex items-center justify-center" style={{ borderColor: GREEN, color: GREEN }}>
             전문가로 가입하기 →

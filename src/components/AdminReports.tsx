@@ -13,7 +13,7 @@ const REASON: Record<string, string> = {
   privacy: '개인정보 요구·유출',
   other: '기타',
 }
-const WHO: Record<string, string> = { guardian: '보호자', expert: '전문가', system: '안내', unknown: '알 수 없음' }
+const WHO: Record<string, string> = { guardian: '회원', expert: '전문가', system: '안내', unknown: '알 수 없음' }
 
 interface Report {
   id: string

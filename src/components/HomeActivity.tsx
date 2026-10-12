@@ -1,21 +1,19 @@
 'use client'
 
-// 홈 맨 위 '진행 중인 상담' 카드 — 다시 들어온 사람이 탭을 헤매지 않고 바로 이어가도록
-// · 보호자: 진행 중인 요청마다 '전문가 n/3 수락' + 새 메시지 수
-// · 전문가: 받은 요청(새 요청·수락 가능) + 안 읽은 메시지
+// 회원 모드 홈 맨 위 '진행 중인 상담' 카드 — 다시 들어온 사람이 탭을 헤매지 않고 바로 이어가도록
+// 진행 중인 요청마다 '전문가 n/3 수락' + 새 메시지 수. (전문가 업무 현황은 전문가 모드 홈에서)
 // 로그인하지 않았거나 진행 중인 일이 없으면 아무것도 보이지 않는다.
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { useAuthUser } from '@/lib/auth'
-import { MAX_ACCEPT, consultTitle, fetchMyExpert, isExpired, untilLabel, type ConsultRow } from '@/lib/consult'
+import { MAX_ACCEPT, consultTitle, isExpired, untilLabel, type ConsultRow } from '@/lib/consult'
 import { refreshPushOwner } from '@/lib/push'
 import { PushPrompt } from '@/components/PushPrompt'
 
 const GREEN = '#0A8A7B'
 const GREEN_DARK = '#0F6E56'
-export const INBOX_SEEN_KEY = 'inbox_seen_at'
 
 interface RoomLite {
   id: string
@@ -24,40 +22,19 @@ interface RoomLite {
   unread: number
 }
 
-interface FeedLite {
-  id: string
-  status: 'open' | 'closed'
-  accepted_count: number
-  expires_at: string
-  created_at: string
-  my_room_id: string | null
-}
-
 interface Summary {
   requests: { row: ConsultRow; unread: number }[]
-  expert: { fresh: number; acceptable: number; unread: number } | null
   otherUnread: number
 }
 
-const canAccept = (r: FeedLite) => !r.my_room_id && r.status === 'open' && r.accepted_count < MAX_ACCEPT && !isExpired(r)
-
-function readSeen(): number {
-  try {
-    return Number(new Date(localStorage.getItem(INBOX_SEEN_KEY) ?? 0).getTime()) || 0
-  } catch {
-    return 0
-  }
-}
-
 async function loadSummary(): Promise<Summary> {
-  const [reqRes, roomsRes, expert] = await Promise.all([
+  const [reqRes, roomsRes] = await Promise.all([
     supabase
       .from('consult_requests')
       .select('id, answers, note, area_label, status, accepted_count, created_at, expires_at')
       .order('created_at', { ascending: false })
       .limit(10),
     supabase.rpc('my_chat_rooms'),
-    fetchMyExpert(),
   ])
   const rooms: RoomLite[] = Array.isArray(roomsRes.data) ? (roomsRes.data as RoomLite[]) : []
   const unreadByConsult: Record<string, number> = {}
@@ -69,23 +46,11 @@ async function loadSummary(): Promise<Summary> {
     .filter(({ row, unread }) => unread > 0 || (row.status === 'open' && !isExpired(row)))
     .slice(0, 3)
 
-  // 요청서가 지워졌어도 남은 보호자 쪽 대화 (드묾)
+  // 요청서가 지워졌어도 남은 회원 쪽 대화 (드묾)
   const shownIds = new Set(requests.map((r) => r.row.id))
   const otherUnread = rooms.filter((r) => r.role === 'guardian' && (!r.consult || !shownIds.has(r.consult.id))).reduce((n, r) => n + r.unread, 0)
 
-  let expertSummary: Summary['expert'] = null
-  if (expert?.verified) {
-    const { data } = await supabase.rpc('consult_feed')
-    const feed: FeedLite[] = Array.isArray(data) ? (data as FeedLite[]) : []
-    const seen = readSeen()
-    const open = feed.filter(canAccept)
-    expertSummary = {
-      fresh: open.filter((r) => new Date(r.created_at).getTime() > seen).length,
-      acceptable: open.length,
-      unread: rooms.filter((r) => r.role === 'expert').reduce((n, r) => n + r.unread, 0),
-    }
-  }
-  return { requests, expert: expertSummary, otherUnread }
+  return { requests, otherUnread }
 }
 
 export default function HomeActivity() {
@@ -114,9 +79,8 @@ export default function HomeActivity() {
   }, [user])
 
   if (!user || !summary) return null
-  const { requests, expert, otherUnread } = summary
-  const hasExpertNews = !!expert && (expert.acceptable > 0 || expert.unread > 0)
-  if (requests.length === 0 && !hasExpertNews && otherUnread === 0) return null
+  const { requests, otherUnread } = summary
+  if (requests.length === 0 && otherUnread === 0) return null
 
   return (
     <section className="px-5 pt-2">
@@ -129,19 +93,6 @@ export default function HomeActivity() {
         </div>
 
         <div className="divide-y divide-gray-100">
-          {expert && hasExpertNews && (
-            <>
-              {expert.acceptable > 0 && (
-                <ActivityRow
-                  href="/quotes"
-                  title="받은 상담 요청"
-                  sub={`수락할 수 있는 요청 ${expert.acceptable}건`}
-                  badge={expert.fresh > 0 ? `새 요청 ${expert.fresh}` : undefined}
-                />
-              )}
-              {expert.unread > 0 && <ActivityRow href="/chat" title="보호자와의 채팅" sub="답장을 기다리고 있어요" badge={`새 메시지 ${expert.unread}`} />}
-            </>
-          )}
           {requests.map(({ row, unread }) => {
             const waiting = row.accepted_count === 0 && row.status === 'open' && !isExpired(row)
             return (

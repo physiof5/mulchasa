@@ -1,7 +1,7 @@
 'use client'
 
-// MY — 일반 회원(보호자) 화면. 맨 위에 '전문가로 가입하기' 띠 (숨고 '고수로 가입하기' 참고)
-// 전문가 회원은 이 화면을 '보호자 화면'으로 볼 수 있고, 띠에서 전문가 화면으로 돌아간다.
+// MY — 회원 모드 화면. 맨 위에 '전문가로 가입하기' 띠 (숨고 '고수로 가입하기' 참고)
+// 전문가 회원이 '회원 모드'로 전환하면 이 화면을 쓰고, 띠에서 '전문가 모드로 전환'한다.
 
 import { useMemo } from 'react'
 import Link from 'next/link'
@@ -48,7 +48,9 @@ export default function GuestMy({
           onClick={onExpertMode}
           className="w-full min-h-[56px] px-5 flex items-center justify-between bg-gray-800 text-white text-[16px] font-bold"
         >
-          전문가 화면으로 돌아가기
+          <span>
+            전문가 모드로 전환 <span className="text-[14px] font-semibold text-[#5EEAD4]">받은 요청·스케줄·크루</span>
+          </span>
           <span aria-hidden="true">›</span>
         </button>
       ) : (

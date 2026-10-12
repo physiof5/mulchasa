@@ -240,7 +240,7 @@ export default function RegisterPage() {
         {/* 1. 운동 지도 분야 */}
         {step === 1 && (
           <div className="mt-5">
-            <p className="text-[15px] text-gray-500 mb-4">해당하는 분야를 모두 골라 주세요. 보호자 검색에 이 분야로 나와요.</p>
+            <p className="text-[15px] text-gray-500 mb-4">해당하는 분야를 모두 골라 주세요. 회원 검색에 이 분야로 나와요.</p>
             <div className="flex flex-col gap-2">
               {PURPOSE_OPTIONS.map((p) => {
                 const on = purposes.includes(p)
@@ -435,7 +435,7 @@ export default function RegisterPage() {
                     <span key={km}>{km}km</span>
                   ))}
                 </div>
-                <p className="text-[14px] text-gray-500 mt-3">이 거리 안에 사는 보호자에게 &lsquo;집으로 방문&rsquo; 전문가로 보여요.</p>
+                <p className="text-[14px] text-gray-500 mt-3">이 거리 안에 사는 회원에게 &lsquo;집으로 방문&rsquo; 전문가로 보여요.</p>
               </div>
             )}
           </div>
@@ -591,9 +591,9 @@ function Consent({ checked, onChange, title, lines }: { checked: boolean; onChan
 /** 가입 신청 뒤 — 프로필 작성 안내 (숨고 '프로필 작성 Tip' 참고) */
 function ProfileTips({ name }: { name: string }) {
   const tips = [
-    { n: '01', title: '얼굴이 보이는 사진 + 대표 사진 3장', body: '보호자는 사진으로 첫인상을 정해요. 밝은 얼굴 사진, 운동 지도 모습·센터·도구 사진을 올려 주세요.' },
+    { n: '01', title: '얼굴이 보이는 사진 + 대표 사진 3장', body: '회원은 사진으로 첫인상을 정해요. 밝은 얼굴 사진, 운동 지도 모습·센터·도구 사진을 올려 주세요.' },
     { n: '02', title: '구체적인 서비스 설명', body: '어떤 분을 주로 지도했는지, 첫 만남은 어떻게 진행하는지, 한 번에 몇 분 정도인지 적어 주세요.' },
-    { n: '03', title: '질문답변과 오픈채팅', body: '비용 안내·준비물 같은 자주 묻는 질문에 미리 답해 두면 보호자가 편하게 연락해요.' },
+    { n: '03', title: '질문답변과 오픈채팅', body: '비용 안내·준비물 같은 자주 묻는 질문에 미리 답해 두면 회원이 편하게 연락해요.' },
   ]
   return (
     <main className="max-w-md mx-auto min-h-screen bg-white pb-28">
@@ -604,12 +604,12 @@ function ProfileTips({ name }: { name: string }) {
           <span style={{ color: GREEN_DARK }}>{name} 전문가님</span> 👋
         </p>
         <p className="text-[17px] text-gray-600 mt-3 leading-relaxed">
-          가입 신청을 받았어요. 운영팀이 면허를 확인하는 동안 보호자가 보는 첫인상, 프로필을 완성해 주세요.
+          가입 신청을 받았어요. 운영팀이 면허를 확인하는 동안 회원이 보는 첫인상, 프로필을 완성해 주세요.
         </p>
       </section>
 
       <section className="px-6">
-        <p className="text-[19px] font-extrabold text-gray-900">보호자가 연락하는 프로필은 달라요</p>
+        <p className="text-[19px] font-extrabold text-gray-900">회원이 연락하는 프로필은 달라요</p>
         <div className="mt-4 space-y-3">
           {tips.map((t) => (
             <div key={t.n} className="rounded-2xl border border-gray-100 p-5">
@@ -627,7 +627,7 @@ function ProfileTips({ name }: { name: string }) {
           <ol className="mt-2 space-y-1.5 text-[15px] text-gray-600 list-decimal list-inside leading-relaxed">
             <li>운영자가 면허증 사진으로 이름·면허번호를 확인해요 (확인 뒤 사진은 바로 지워요)</li>
             <li>승인되면 입력한 휴대폰으로 안내 문자를 보내요</li>
-            <li>승인 뒤 보호자 검색에 프로필이 보여요</li>
+            <li>승인 뒤 회원 검색에 프로필이 보여요</li>
           </ol>
         </div>
       </section>
