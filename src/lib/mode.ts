@@ -16,7 +16,7 @@ export const MODE_KEY = 'app_mode'
 /** 전문가 모드에서는 열지 않는 회원 전용 화면 */
 export const MEMBER_ONLY_PATHS = ['/browse', '/magazine', '/check', '/settings', '/find', '/symptom', '/consult/new', '/experts', '/centers', '/search', '/request']
 /** 전문가 모드에서만 쓰는 화면 */
-export const EXPERT_ONLY_PATHS = ['/schedule', '/crew', '/subscription']
+export const EXPERT_ONLY_PATHS = ['/schedule', '/crew', '/subscription', '/reviews/write']
 
 export function matchPath(pathname: string, list: string[]): boolean {
   return list.some((p) => pathname === p || pathname.startsWith(p + '/'))

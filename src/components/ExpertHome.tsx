@@ -215,9 +215,21 @@ export default function ExpertHome() {
           <MenuTile href="/quotes" icon="inbox" label="상담·요청 관리" />
           <MenuTile href="/chat" icon="chat" label="채팅 관리" />
           <MenuTile href="/subscription" icon="subscription" label="구독 관리" />
-          <MenuTile href="/crew" icon="crew" label="크루 관리" badge="준비 중" />
+          <MenuTile href="/crew" icon="crew" label="크루 관리" />
           <MenuTile href="/schedule" icon="schedule" label="스케줄 관리" />
         </div>
+        <Link href="/reviews/mine" className="mt-2.5 flex items-center gap-3 rounded-2xl bg-white border border-gray-100 p-4">
+          <span className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0 text-[22px]" style={{ background: GREEN_LIGHT }} aria-hidden="true">
+            📝
+          </span>
+          <span className="flex-1 min-w-0">
+            <span className="block text-[16px] font-bold text-gray-900">진행 후기 관리</span>
+            <span className="block text-[13px] text-gray-500 leading-snug">10회 이상 함께한 회원의 진행 기록을 올려 프로필에 보여 주세요</span>
+          </span>
+          <span className="text-gray-300 text-xl shrink-0" aria-hidden="true">
+            ›
+          </span>
+        </Link>
       </section>
 
       <section className="px-5 pt-5">

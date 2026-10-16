@@ -12,13 +12,11 @@ import BottomNav from '@/components/BottomNav'
 import HomeActivity from '@/components/HomeActivity'
 import ExpertHome from '@/components/ExpertHome'
 import { useAppMode } from '@/lib/mode'
+import { REVIEW_DISCLAIMER, stars, type PublicReview } from '@/lib/reviews'
 import { saveDeviceCoords, setDeviceItem, useIsClient, useLocalStorageItem } from '@/lib/useDeviceStorage'
 
-interface Review {
-  id: string
-  nickname: string
-  rating: number
-  content: string
+type Review = Pick<PublicReview, 'id' | 'member_label' | 'age_band' | 'sessions' | 'purpose' | 'changes' | 'photos' | 'member_rating'> & {
+  therapists: { name: string } | null
 }
 
 const GREEN = '#0A8A7B'
@@ -47,16 +45,17 @@ export default function Home() {
 
   const onboarding = isClient && (showOnboarding || locationSet !== '1')
 
-  // 실제 후기만 (예시 후기 금지 — 없으면 영역을 숨김)
+  // 실제 진행 기록만 (전문가가 쓰고 회원이 공개에 동의한 것 · 예시 금지 — 없으면 영역을 숨김)
   useEffect(() => {
     let alive = true
     supabase
-      .from('reviews')
-      .select('id, nickname, rating, content')
-      .order('created_at', { ascending: false })
-      .limit(5)
+      .from('case_reviews')
+      .select('id, member_label, age_band, sessions, purpose, changes, photos, member_rating, therapists(name)')
+      .eq('status', 'published')
+      .order('published_at', { ascending: false })
+      .limit(6)
       .then(({ data, error }) => {
-        if (alive && !error && data) setReviews(data as Review[])
+        if (alive && !error && data) setReviews(data as unknown as Review[])
       })
     return () => {
       alive = false
@@ -215,28 +214,34 @@ export default function Home() {
         </div>
       </section>
 
-      {/* 실제 후기 (있을 때만) */}
+      {/* 전문가 진행 기록 (있을 때만) */}
       {reviews.length > 0 && (
         <section className="pt-8">
-          <h2 className="px-5 text-[19px] font-extrabold text-gray-900 mb-3">이용 후기</h2>
+          <h2 className="px-5 text-[19px] font-extrabold text-gray-900">전문가 진행 기록</h2>
+          <p className="px-5 text-[13px] text-gray-500 mt-0.5 mb-3">10회 이상 함께한 회원이 공개에 동의한 기록이에요</p>
           <div className="flex gap-3 overflow-x-auto pb-2 px-5" style={{ scrollbarWidth: 'none' }}>
             {reviews.map((r) => (
-              <div key={r.id} className="shrink-0 w-[280px] bg-white border border-gray-100 rounded-2xl p-4">
-                <div className="flex items-center gap-2.5 mb-2">
-                  <div className="w-9 h-9 rounded-full flex items-center justify-center text-[13px] font-bold" style={{ background: GREEN_LIGHT, color: GREEN_DARK }}>
-                    {r.nickname.charAt(0)}
+              <Link key={r.id} href={`/reviews/${r.id}`} className="shrink-0 w-[260px] bg-white border border-gray-100 rounded-2xl overflow-hidden">
+                <div className="h-[130px] bg-gray-100">{r.photos[0] && <img src={r.photos[0]} alt="" className="w-full h-full object-cover" />}</div>
+                <div className="p-4">
+                  <div className="text-[15px] font-bold text-gray-900 truncate">
+                    {r.member_label} · {r.age_band} · {r.sessions}회
                   </div>
-                  <div>
-                    <div className="text-[14px] font-bold text-gray-900">{r.nickname}</div>
-                    <div className="text-[12px]" style={{ color: '#BA7517' }}>
-                      ★ {Number(r.rating).toFixed(1)}
+                  <div className="text-[13px] text-gray-500 truncate mt-0.5">
+                    {r.therapists?.name ? `${r.therapists.name} 물리치료사` : '물리치료사'}
+                    {r.purpose ? ` · ${r.purpose}` : ''}
+                  </div>
+                  <div className="text-[14px] text-gray-600 leading-relaxed line-clamp-2 mt-2">{r.changes}</div>
+                  {r.member_rating != null && (
+                    <div className="text-[13px] mt-1.5" style={{ color: '#BA7517' }}>
+                      {stars(r.member_rating)} <span className="text-gray-400">회원 만족도</span>
                     </div>
-                  </div>
+                  )}
                 </div>
-                <div className="text-[14px] text-gray-600 leading-relaxed line-clamp-3">{r.content}</div>
-              </div>
+              </Link>
             ))}
           </div>
+          <p className="px-5 text-[12px] text-gray-400 leading-relaxed">{REVIEW_DISCLAIMER}</p>
         </section>
       )}
 

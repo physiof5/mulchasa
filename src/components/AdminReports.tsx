@@ -1,6 +1,6 @@
 'use client'
 
-// 관리자 — 채팅 신고 (신고 시점 최근 대화 50개와 함께 확인 → 대화 중지 / 처리 완료)
+// 관리자 — 채팅 신고 (신고 시점 최근 대화 50개와 함께 확인 → 대화 중지 / 위반 확인(감점) / 처리 완료)
 
 import { useCallback, useEffect, useState } from 'react'
 
@@ -23,6 +23,7 @@ interface Report {
   detail: string
   snapshot: { who: string; body: string; at: string }[]
   status: 'new' | 'done'
+  upheld?: boolean
   created_at: string
   handled_at: string | null
   chat_rooms: { id: string; admin_blocked: boolean; blocked_by: string | null; therapists: { name: string } | null } | null
@@ -62,12 +63,14 @@ export default function AdminReports({ onAuthLost }: { onAuthLost: () => void })
     }
   }, [status, onAuthLost])
 
-  const act = async (id: string, action: 'done' | 'reopen' | 'stop_room' | 'resume_room') => {
+  const act = async (id: string, action: 'done' | 'reopen' | 'stop_room' | 'resume_room' | 'uphold' | 'unuphold') => {
     const confirmText: Record<string, string> = {
       stop_room: '이 대화방을 중지할까요? 두 사람 모두 메시지를 보낼 수 없게 돼요.',
       resume_room: '중지한 대화방을 다시 열까요?',
       done: '처리 완료로 옮길까요? (처리 후 1년 뒤 자동 삭제)',
       reopen: '다시 확인 필요로 옮길까요?',
+      uphold: '전문가의 위반으로 확인할까요? 크루 스코어에서 5점 감점돼요(최근 90일).',
+      unuphold: '위반 확인을 취소할까요? 감점이 사라져요.',
     }
     if (!confirm(confirmText[action])) return
     setBusy(true)
@@ -131,6 +134,7 @@ export default function AdminReports({ onAuthLost }: { onAuthLost: () => void })
                   </div>
                   {room?.admin_blocked && <span className="px-2 py-1 rounded-full text-xs font-bold bg-red-50 text-red-600 shrink-0">대화 중지됨</span>}
                   {!room && <span className="px-2 py-1 rounded-full text-xs font-bold bg-gray-100 text-gray-500 shrink-0">대화방 삭제됨</span>}
+                  {r.upheld && <span className="px-2 py-1 rounded-full text-xs font-bold bg-amber-50 text-amber-700 shrink-0">위반 확인 · 감점</span>}
                 </div>
 
                 <button onClick={() => setOpen(open === r.id ? null : r.id)} className="mt-2 text-sm font-semibold text-[#0A8A7B]">
@@ -149,7 +153,16 @@ export default function AdminReports({ onAuthLost }: { onAuthLost: () => void })
                   </div>
                 )}
 
-                <div className="mt-3 flex gap-2">
+                {r.reporter_role === 'guardian' && (
+                  <button
+                    disabled={busy}
+                    onClick={() => act(r.id, r.upheld ? 'unuphold' : 'uphold')}
+                    className={'mt-3 w-full py-2.5 rounded-xl text-sm font-bold disabled:opacity-50 ' + (r.upheld ? 'bg-gray-100 text-gray-600' : 'bg-amber-50 text-amber-700 border border-amber-100')}
+                  >
+                    {r.upheld ? '위반 확인 취소 (감점 해제)' : '전문가 위반 확인 (크루 스코어 −5)'}
+                  </button>
+                )}
+                <div className="mt-2 flex gap-2">
                   {room &&
                     (room.admin_blocked ? (
                       <button disabled={busy} onClick={() => act(r.id, 'resume_room')} className="flex-1 py-2.5 rounded-xl text-sm font-bold bg-gray-100 text-gray-600 disabled:opacity-50">

@@ -255,7 +255,8 @@ async function loadExperts(): Promise<Expert[]> {
   const [photoRes, ttRes, rvRes, avRes] = await Promise.all([
     supabase.from('therapists').select('id, photo_urls').in('id', ids),
     supabase.from('therapist_tags').select('therapist_id, tag_id').in('therapist_id', ids),
-    supabase.from('reviews').select('therapist_id, rating').in('therapist_id', ids),
+    // 별점 = 진행 후기를 공개하며 회원이 남긴 만족도 (남긴 것만)
+    supabase.from('case_reviews').select('therapist_id, member_rating').eq('status', 'published').not('member_rating', 'is', null).in('therapist_id', ids),
     supabase.from('therapist_availability').select('therapist_id, day_of_week, slot').in('therapist_id', ids),
   ])
 
@@ -277,7 +278,7 @@ async function loadExperts(): Promise<Expert[]> {
   const rv: Record<string, { sum: number; n: number }> = {}
   ;(rvRes.data || []).forEach((r) => {
     const x = (rv[r.therapist_id] ||= { sum: 0, n: 0 })
-    x.sum += r.rating
+    x.sum += Number(r.member_rating) || 0
     x.n += 1
   })
 

@@ -4,9 +4,11 @@
 // · 새 메시지는 실시간(Supabase Realtime)으로 받고, 혹시 끊겨도 8초마다 한 번 더 확인
 // · 신고(최근 대화 50개 함께 보관) · 차단(두 사람 모두 보낼 수 없음, 차단한 사람만 풀 수 있음)
 // · 대화는 마지막 메시지 후 180일 뒤 자동 삭제
+// · 전문가: 크루원 추천(회원이 수락해야 새 대화방) · 진행 후기 쓰기(10회 이상, 회원이 공개에 동의해야 공개)
 
 import { use, useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useAuthUser } from '@/lib/auth'
 import {
@@ -14,6 +16,8 @@ import {
 } from '@/lib/consult'
 import { notifyPush } from '@/lib/push'
 import { setAppMode, storedMode, useAppMode } from '@/lib/mode'
+import { crewError, ROLE_LABEL, type CrewRole } from '@/lib/crew'
+import { findBannedPhrase, bannedMessage } from '@/lib/practitioner'
 import { TopBar, Avatar, GuardianAvatar, AnswerList, LoginNeeded, Spinner, GREEN, GREEN_DARK, GREEN_LIGHT } from '@/components/ConsultParts'
 
 interface RoomInfo {
@@ -25,6 +29,24 @@ interface RoomInfo {
   blocked_by_me: boolean
   admin_blocked: boolean
   partner_read_at: string
+  has_crew?: boolean
+  review?: { id: string; status: 'pending' | 'published' | 'declined' | 'hidden' } | null
+  referral?: {
+    id: string
+    note: string
+    mine: boolean
+    from_name: string | null
+    to: { therapist_id: string; name: string; photo: string | null; years: number | null }
+  } | null
+}
+
+interface Candidate {
+  user_id: string
+  name: string
+  photo: string | null
+  years: number | null
+  role: CrewRole
+  distance_km: number | null
 }
 
 interface Msg {
@@ -91,6 +113,9 @@ function Room({ id, me }: { id: string; me: string }) {
   const [sendError, setSendError] = useState('')
   const [menu, setMenu] = useState(false)
   const [reporting, setReporting] = useState(false)
+  const [referring, setReferring] = useState(false)
+  const [refBusy, setRefBusy] = useState(false)
+  const router = useRouter()
   const listRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const lastIdRef = useRef(0)
@@ -241,6 +266,37 @@ function Room({ id, me }: { id: string; me: string }) {
     loadInfo()
   }
 
+  // 회원: 추천받은 크루원과 연결 / 사양
+  const answerReferral = async (accept: boolean) => {
+    const ref = info?.referral
+    if (!ref || refBusy) return
+    if (!accept && !confirm('추천을 사양할까요? 지금 대화는 그대로 이어져요.')) return
+    setRefBusy(true)
+    const { data, error } = await supabase.rpc('answer_referral', { p_id: ref.id, p_accept: accept })
+    setRefBusy(false)
+    if (error) return alert(crewError(error))
+    if (accept && typeof data === 'string') {
+      notifyPush({ type: 'referral_accepted', referral_id: ref.id })
+      refreshNavBadges()
+      router.push(`/chat/${data}`)
+      return
+    }
+    loadInfo()
+    pullNew()
+  }
+
+  // 전문가: 보낸 추천 거두기
+  const cancelReferral = async () => {
+    const ref = info?.referral
+    if (!ref || refBusy || !confirm('추천을 거둘까요?')) return
+    setRefBusy(true)
+    const { error } = await supabase.rpc('cancel_referral', { p_id: ref.id })
+    setRefBusy(false)
+    if (error) return alert(crewError(error))
+    loadInfo()
+    pullNew()
+  }
+
   if (info === undefined || !loaded) {
     return (
       <main className="max-w-md mx-auto min-h-screen bg-white">
@@ -278,6 +334,8 @@ function Room({ id, me }: { id: string; me: string }) {
   if (info.admin_blocked) notice = { text: '운영 정책에 따라 이 대화는 중지되었어요.', tone: 'stop' }
   else if (info.blocked) notice = { text: info.blocked_by_me ? '내가 차단한 대화예요. 오른쪽 위 메뉴에서 풀 수 있어요.' : '상대방이 대화를 차단했어요.', tone: 'stop' }
   else if (waiting) notice = { text: `${partnerName}님이 답변을 기다리고 있어요.`, tone: 'warn' }
+  const review = info.review ?? null
+  const referral = info.referral ?? null
 
   return (
     <main className="max-w-md mx-auto h-[100dvh] flex flex-col" style={{ background: '#F2F4F6' }}>
@@ -374,6 +432,54 @@ function Room({ id, me }: { id: string; me: string }) {
         )}
       </div>
 
+      {referral && isGuardian && (
+        <div className="bg-white border-t-2 px-4 pt-3 pb-3" style={{ borderColor: GREEN_LIGHT }}>
+          <p className="text-[14px] font-bold" style={{ color: GREEN_DARK }}>
+            {referral.from_name ?? t.name}님이 같은 크루의 물리치료사를 추천했어요
+          </p>
+          <div className="mt-2 flex items-center gap-3">
+            <Avatar src={referral.to.photo} name={referral.to.name} size={48} />
+            <div className="flex-1 min-w-0">
+              <p className="text-[17px] font-extrabold text-gray-900 truncate">{referral.to.name}</p>
+              <p className="text-[14px] text-gray-500">물리치료사{referral.to.years ? ` · 경력 ${referral.to.years}년` : ''}</p>
+            </div>
+            <Link href={`/therapist/${referral.to.therapist_id}`} className="min-h-[44px] px-3 rounded-lg border border-gray-200 text-[14px] font-semibold text-gray-600 flex items-center shrink-0">
+              프로필
+            </Link>
+          </div>
+          {referral.note && <p className="mt-2 rounded-xl bg-gray-50 px-3 py-2 text-[15px] text-gray-700 leading-relaxed whitespace-pre-line">{referral.note}</p>}
+          <div className="mt-3 grid grid-cols-[1fr_2fr] gap-2">
+            <button type="button" disabled={refBusy} onClick={() => answerReferral(false)} className="min-h-[48px] rounded-xl border border-gray-200 text-[15px] font-semibold text-gray-600">
+              괜찮아요
+            </button>
+            <button type="button" disabled={refBusy} onClick={() => answerReferral(true)} className="min-h-[48px] rounded-xl text-[16px] font-bold text-white" style={{ background: GREEN }}>
+              {refBusy ? '연결하는 중...' : `${referral.to.name}님과 대화 시작`}
+            </button>
+          </div>
+          <p className="text-[12px] text-gray-400 mt-2">연결하면 요청서 내용이 이 전문가에게도 보여요. 지금 대화는 그대로 남아요.</p>
+        </div>
+      )}
+      {referral && !isGuardian && referral.mine && (
+        <div className="bg-white border-t border-gray-100 px-5 py-2.5 flex items-center gap-2">
+          <p className="flex-1 text-[14px] text-gray-700">
+            <b>{referral.to.name}</b>님을 추천했어요 · 회원의 답을 기다리는 중
+          </p>
+          <button type="button" onClick={cancelReferral} disabled={refBusy} className="min-h-[40px] px-3 rounded-lg border border-gray-200 text-[13px] font-semibold text-gray-600 shrink-0">
+            거두기
+          </button>
+        </div>
+      )}
+      {review?.status === 'pending' && (
+        <Link href={`/reviews/${review.id}`} className="bg-white border-t border-gray-100 px-5 min-h-[52px] flex items-center gap-2">
+          <span className="text-[18px]" aria-hidden="true">📝</span>
+          <span className="flex-1 text-[15px] text-gray-800">
+            {isGuardian ? '전문가가 진행 후기 공개 동의를 요청했어요' : '진행 후기 · 회원이 확인하는 중이에요'}
+          </span>
+          <span className="text-[15px] font-bold shrink-0" style={{ color: GREEN_DARK }}>
+            {isGuardian ? '확인하기 ›' : '보기 ›'}
+          </span>
+        </Link>
+      )}
       {notice && (
         <div className="bg-white border-t border-gray-100 px-5 py-3 flex items-center gap-2.5">
           <span
@@ -420,6 +526,22 @@ function Room({ id, me }: { id: string; me: string }) {
           {isGuardian && <SheetLink href={`/therapist/${t.id}`} label="전문가 프로필 보기" />}
           {info.consult && <SheetLink href={`/consult/${info.consult.id}`} label="요청서 보기" />}
           {!isGuardian && <SheetLink href={`/schedule?room=${info.id}`} label="스케줄에 일정 잡기" />}
+          {!isGuardian &&
+            (review ? (
+              <SheetLink href={`/reviews/${review.id}`} label="진행 후기 보기" />
+            ) : (
+              canSend && <SheetLink href={`/reviews/write?room=${info.id}`} label="진행 후기 쓰기 (10회 이상 진행 후)" />
+            ))}
+          {isGuardian && review && review.status !== 'declined' && <SheetLink href={`/reviews/${review.id}`} label="진행 후기 보기" />}
+          {!isGuardian && info.has_crew && canSend && !referral && (
+            <SheetButton
+              label="크루원 추천하기"
+              onClick={() => {
+                setMenu(false)
+                setReferring(true)
+              }}
+            />
+          )}
           <SheetButton
             label="신고하기"
             danger
@@ -434,6 +556,18 @@ function Room({ id, me }: { id: string; me: string }) {
             !info.blocked && <SheetButton label="차단하기" danger onClick={() => setBlock(true)} />
           )}
         </Sheet>
+      )}
+      {referring && (
+        <ReferralSheet
+          roomId={id}
+          onClose={() => setReferring(false)}
+          onDone={(refId) => {
+            setReferring(false)
+            notifyPush({ type: 'referral', referral_id: refId })
+            loadInfo()
+            pullNew()
+          }}
+        />
       )}
       {reporting && <ReportSheet roomId={id} canBlock={!info.blocked} onBlock={() => setBlock(true)} onClose={() => setReporting(false)} />}
     </main>
@@ -458,11 +592,11 @@ function ExpertCard({ t }: { t: RoomInfo['therapist'] }) {
         </p>
         <div className="mt-3 grid grid-cols-3 rounded-xl bg-gray-50 py-3 text-center">
           <span>
-            <span className="block text-[13px] text-gray-500">평점</span>
-            <span className="block text-[17px] font-extrabold text-gray-900">{t.reviews > 0 ? Number(t.rating).toFixed(1) : '-'}</span>
+            <span className="block text-[13px] text-gray-500">만족도</span>
+            <span className="block text-[17px] font-extrabold text-gray-900">{t.rating != null ? Number(t.rating).toFixed(1) : '-'}</span>
           </span>
           <span>
-            <span className="block text-[13px] text-gray-500">후기</span>
+            <span className="block text-[13px] text-gray-500">진행 후기</span>
             <span className="block text-[17px] font-extrabold text-gray-900">{t.reviews}</span>
           </span>
           <span>
@@ -525,6 +659,109 @@ function SheetButton({ label, onClick, danger }: { label: string; onClick: () =>
     >
       {label}
     </button>
+  )
+}
+
+function ReferralSheet({ roomId, onClose, onDone }: { roomId: string; onClose: () => void; onDone: (referralId: string) => void }) {
+  const [list, setList] = useState<Candidate[] | null>(null)
+  const [pick, setPick] = useState<Candidate | null>(null)
+  const [note, setNote] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const banned = findBannedPhrase(note)
+
+  useEffect(() => {
+    let alive = true
+    supabase.rpc('crew_referral_candidates', { p_room: roomId }).then(({ data }) => {
+      if (alive) setList(Array.isArray(data) ? (data as Candidate[]) : [])
+    })
+    return () => {
+      alive = false
+    }
+  }, [roomId])
+
+  const choose = (c: Candidate) => {
+    setPick(c)
+    if (!note.trim() || note.startsWith('제 일정이')) setNote(`제 일정이 맞지 않아 같은 크루의 ${c.name} 선생님을 추천드려요. 믿고 맡길 수 있는 동료예요.`)
+  }
+
+  const submit = async () => {
+    if (!pick || busy || banned) return
+    setBusy(true)
+    setError('')
+    const { data, error: e } = await supabase.rpc('create_referral', { p_room: roomId, p_to_user: pick.user_id, p_note: note.trim() })
+    setBusy(false)
+    if (e || typeof data !== 'string') return setError(crewError(e))
+    onDone(data)
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center" role="dialog" aria-modal="true" aria-label="크루원 추천하기">
+      <button type="button" aria-label="닫기" onClick={onClose} className="absolute inset-0 bg-black/40" />
+      <div className="relative w-full max-w-md max-h-[90dvh] overflow-y-auto bg-white rounded-t-3xl px-5 pt-5" style={{ paddingBottom: 'calc(1.25rem + env(safe-area-inset-bottom))' }}>
+        <p className="text-[20px] font-extrabold text-gray-900">크루원 추천하기</p>
+        <p className="text-[14px] text-gray-500 mt-1 leading-relaxed">일정이 안 맞을 때 같은 크루의 동료를 회원에게 소개해요. 회원이 수락해야 새 대화가 열리고, 돈은 오가지 않아요.</p>
+        {list === null ? (
+          <Spinner />
+        ) : list.length === 0 ? (
+          <p className="text-[15px] text-gray-500 py-8 text-center leading-relaxed">추천할 수 있는 크루원이 없어요.<br />(이미 이 회원과 대화 중인 크루원은 빠져요)</p>
+        ) : (
+          <div className="mt-4 flex flex-col gap-2">
+            {list.map((c) => {
+              const on = pick?.user_id === c.user_id
+              return (
+                <button
+                  key={c.user_id}
+                  type="button"
+                  onClick={() => choose(c)}
+                  aria-pressed={on}
+                  className="flex items-center gap-3 min-h-[64px] px-3 rounded-xl border-2 text-left"
+                  style={on ? { borderColor: GREEN, background: GREEN_LIGHT } : { borderColor: '#E5E7EB' }}
+                >
+                  <Avatar src={c.photo} name={c.name} size={44} />
+                  <span className="flex-1 min-w-0">
+                    <span className="block text-[16px] font-bold text-gray-900 truncate">
+                      {c.name} {c.role !== 'member' && <span className="text-[13px] font-semibold" style={{ color: GREEN_DARK }}>{ROLE_LABEL[c.role]}</span>}
+                    </span>
+                    <span className="block text-[13px] text-gray-500">
+                      경력 {c.years ? `${c.years}년` : '-'}
+                      {c.distance_km != null && ` · 회원 동네에서 약 ${c.distance_km}km`}
+                    </span>
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+        )}
+        {pick && (
+          <>
+            <label className="block mt-4">
+              <span className="text-[15px] font-bold text-gray-800">회원에게 남길 말</span>
+              <textarea
+                value={note}
+                onChange={(e) => setNote(e.target.value.slice(0, 200))}
+                rows={3}
+                className="mt-1.5 w-full p-3 border border-gray-200 rounded-xl text-[15px] leading-relaxed focus:outline-none focus:border-[#0A8A7B] resize-none"
+              />
+            </label>
+            {banned && <p className="text-[13px] text-red-500 mt-1">{bannedMessage(banned)}</p>}
+          </>
+        )}
+        {error && <p className="text-[14px] text-red-500 mt-2">{error}</p>}
+        <button
+          type="button"
+          onClick={submit}
+          disabled={!pick || busy || !!banned}
+          className="mt-4 w-full min-h-[52px] rounded-xl text-[16px] font-bold text-white disabled:bg-gray-200 disabled:text-gray-400"
+          style={{ background: !pick || busy || banned ? undefined : GREEN }}
+        >
+          {busy ? '보내는 중...' : pick ? `${pick.name}님 추천하기` : '추천할 크루원을 골라 주세요'}
+        </button>
+        <button type="button" onClick={onClose} className="mt-1 w-full min-h-[48px] text-[15px] font-semibold text-gray-500">
+          취소
+        </button>
+      </div>
+    </div>
   )
 }
 

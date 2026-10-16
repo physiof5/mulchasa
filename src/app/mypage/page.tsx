@@ -316,9 +316,9 @@ export default function MyPage() {
     const { data: centerRow, error: centerReadError } = await supabase.from('therapists').select('center_address').eq('id', data.id).single()
     setSavedCenterAddress(centerReadError ? null : centerRow?.center_address ?? null)
 
-    // 후기 평점 (내 프로필 머리에 표시)
-    const { data: rv } = await supabase.from('reviews').select('rating').eq('therapist_id', data.id)
-    setRating(rv && rv.length > 0 ? { avg: rv.reduce((s, r) => s + r.rating, 0) / rv.length, count: rv.length } : null)
+    // 회원 만족도 (공개된 진행 후기에 회원이 남긴 별점 — 내 프로필 머리에 표시)
+    const { data: rv } = await supabase.from('case_reviews').select('member_rating').eq('therapist_id', data.id).eq('status', 'published').not('member_rating', 'is', null)
+    setRating(rv && rv.length > 0 ? { avg: rv.reduce((s, r) => s + (Number(r.member_rating) || 0), 0) / rv.length, count: rv.length } : null)
     const studio0: string = data.studio_name || ''
     const certs0: string[] = data.certifications || []
     setStudioName(studio0)

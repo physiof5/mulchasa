@@ -17,13 +17,13 @@ export async function GET(req: NextRequest) {
 
   const { data, error } = await supabaseAdmin
     .from('chat_reports')
-    .select('id, room_id, reporter_role, reason, detail, snapshot, status, created_at, handled_at, chat_rooms(id, admin_blocked, blocked_by, therapists(name))')
+        .select('id, room_id, reporter_role, reason, detail, snapshot, status, upheld, created_at, handled_at, chat_rooms(id, admin_blocked, blocked_by, therapists(name))')
     .eq('status', status)
     .order('created_at', { ascending: false })
     .limit(100)
   if (error) {
     console.error('admin reports error:', error)
-    return NextResponse.json({ error: '신고 목록을 불러오지 못했어요 (day13 SQL 실행 여부 확인)' }, { status: 500 })
+    return NextResponse.json({ error: '신고 목록을 불러오지 못했어요 (day13·day16 SQL 실행 여부 확인)' }, { status: 500 })
   }
   return NextResponse.json({ reports: data ?? [] })
 }
@@ -31,7 +31,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   if (!authed(req)) return NextResponse.json({ error: '인증 실패' }, { status: 401 })
   const { id, action } = await req.json().catch(() => ({}))
-  if (typeof id !== 'string' || !['done', 'reopen', 'stop_room', 'resume_room'].includes(action)) {
+  if (typeof id !== 'string' || !['done', 'reopen', 'stop_room', 'resume_room', 'uphold', 'unuphold'].includes(action)) {
     return NextResponse.json({ error: '잘못된 요청' }, { status: 400 })
   }
 
@@ -41,6 +41,17 @@ export async function POST(req: NextRequest) {
       .update(action === 'done' ? { status: 'done', handled_at: new Date().toISOString() } : { status: 'new', handled_at: null })
       .eq('id', id)
     if (error) return NextResponse.json({ error: '처리하지 못했어요' }, { status: 500 })
+    return NextResponse.json({ ok: true })
+  }
+
+  // 위반 확인(감점) — 회원이 전문가를 신고한 건만. 전문가 크루 스코어에서 1건당 5점 감점(최근 90일)
+  if (action === 'uphold' || action === 'unuphold') {
+    const { error } = await supabaseAdmin
+      .from('chat_reports')
+      .update({ upheld: action === 'uphold' })
+      .eq('id', id)
+      .eq('reporter_role', 'guardian')
+    if (error) return NextResponse.json({ error: '처리하지 못했어요 (day16 SQL 실행 여부 확인)' }, { status: 500 })
     return NextResponse.json({ ok: true })
   }
 

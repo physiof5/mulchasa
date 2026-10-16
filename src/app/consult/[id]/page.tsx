@@ -213,7 +213,7 @@ function OwnerView({ view, justSent, onChanged }: { view: Extract<View, { role: 
                   <div className="flex-1 min-w-0">
                     <p className="text-[17px] font-extrabold text-gray-900 truncate">{r.name}</p>
                     <p className="text-[14px] text-gray-500 truncate">물리치료사{r.years ? ` · 경력 ${r.years}년` : ''}</p>
-                    <p className="text-[14px] text-gray-500 truncate">{r.reviews > 0 ? `★ ${Number(r.rating).toFixed(1)} · 후기 ${r.reviews}개` : '아직 후기가 없어요'}</p>
+                    <p className="text-[14px] text-gray-500 truncate">{r.reviews > 0 ? `${r.rating != null ? `★ ${Number(r.rating).toFixed(1)} · ` : ''}진행 후기 ${r.reviews}개` : '아직 진행 후기가 없어요'}</p>
                   </div>
                   <Link href={`/therapist/${r.therapist_id}`} className="shrink-0 min-h-[40px] px-3 rounded-lg border border-gray-200 text-[14px] font-semibold text-gray-600 flex items-center">
                     프로필

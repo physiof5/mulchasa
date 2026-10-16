@@ -1,12 +1,15 @@
 'use client'
 
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState } from 'react'
+import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import ConsultFormModal from '@/components/ConsultFormModal'
 import PhotoTriplet from '@/components/PhotoTriplet'
 import { pickPhotos } from '@/lib/squareImage'
 import { practitionerLabel, workTypeLabels, summarizeAvailability, PRACTICE_RULES, FAQ_QUESTIONS, cleanFaq } from '@/lib/practitioner'
+import { PUBLIC_FIELDS, REVIEW_DISCLAIMER, stars, type PublicReview } from '@/lib/reviews'
+import { TierIcon } from '@/components/crew/CrewParts'
 
 interface Therapist {
   id: string
@@ -30,45 +33,31 @@ interface Tag {
   label: string
 }
 
-interface Review {
-  id: string
-  nickname: string
-  rating: number
-  content: string
-  created_at: string
-  image_urls: string[] | null
-}
-
-const MAX_REVIEW_IMAGES = 1
 
 export default function TherapistDetailPage() {
   const params = useParams()
   const router = useRouter()
   const [therapist, setTherapist] = useState<Therapist | null>(null)
   const [tags, setTags] = useState<Tag[]>([])
-  const [reviews, setReviews] = useState<Review[]>([])
+  const [reviews, setReviews] = useState<PublicReview[]>([])
+  const [crew, setCrew] = useState<{ crew: string; tier: string } | null>(null)
   const [availability, setAvailability] = useState<string[]>([])
   const [faq, setFaq] = useState<Record<string, string>>({})
   const [photos, setPhotos] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
-  const [showReviewForm, setShowReviewForm] = useState(false)
   const [showAllCerts, setShowAllCerts] = useState(false)
   const [activeTab, setActiveTab] = useState('intro')
-  const [nickname, setNickname] = useState('')
-  const [rating, setRating] = useState(5)
-  const [content, setContent] = useState('')
-  const [reviewImages, setReviewImages] = useState<File[]>([])
-  const [reviewImagePreviews, setReviewImagePreviews] = useState<string[]>([])
-  const [submitting, setSubmitting] = useState(false)
-
+  // 진행 후기: 전문가가 쓰고 회원이 공개에 동의한 것만
   const fetchReviews = async (therapistId: string) => {
     const { data } = await supabase
-      .from('reviews')
-      .select('*')
+      .from('case_reviews')
+      .select(PUBLIC_FIELDS)
       .eq('therapist_id', therapistId)
-      .order('created_at', { ascending: false })
-    setReviews(data || [])
+      .eq('status', 'published')
+      .order('published_at', { ascending: false })
+      .limit(30)
+    setReviews((data as PublicReview[] | null) ?? [])
   }
 
   useEffect(() => {
@@ -116,73 +105,19 @@ export default function TherapistDetailPage() {
       if (!photoError) setPhotos(pickPhotos(photoRow?.photo_urls))
 
       await fetchReviews(id)
+      // 크루 배지 (없거나 준비 전이면 표시 안 함)
+      const { data: badges } = await supabase.rpc('crew_badges', { p_ids: [id] })
+      const b = Array.isArray(badges) ? (badges as { crew: string; tier: string }[])[0] : null
+      setCrew(b ?? null)
       setLoading(false)
     }
     fetchData()
   }, [params.id])
 
-  const handleReviewImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || [])
-    if (files.length === 0) return
-    const room = MAX_REVIEW_IMAGES - reviewImages.length
-    const accepted = files.slice(0, room)
-    setReviewImages(prev => [...prev, ...accepted])
-    accepted.forEach(file => {
-      const reader = new FileReader()
-      reader.onloadend = () => setReviewImagePreviews(prev => [...prev, reader.result as string])
-      reader.readAsDataURL(file)
-    })
-    e.target.value = ''
-  }
-
-  const removeReviewImage = (index: number) => {
-    setReviewImages(prev => prev.filter((_, i) => i !== index))
-    setReviewImagePreviews(prev => prev.filter((_, i) => i !== index))
-  }
-
-  const uploadReviewImages = async (therapistId: string): Promise<string[]> => {
-    const urls: string[] = []
-    for (let i = 0; i < reviewImages.length; i++) {
-      const file = reviewImages[i]
-      const ext = file.name.split('.').pop()
-      const fileName = `${therapistId}/${Date.now()}_${i}.${ext}`
-      const { error } = await supabase.storage.from('reviews').upload(fileName, file, { upsert: false })
-      if (!error) {
-        const { data } = supabase.storage.from('reviews').getPublicUrl(fileName)
-        urls.push(data.publicUrl)
-      }
-    }
-    return urls
-  }
-
-  const handleSubmitReview = async () => {
-    if (!therapist || !nickname.trim() || content.trim().length < 10) return
-    setSubmitting(true)
-
-    const imageUrls = await uploadReviewImages(therapist.id)
-
-    const { error } = await supabase.from('reviews').insert({
-      therapist_id: therapist.id,
-      nickname: nickname.trim(),
-      rating,
-      content: content.trim(),
-      image_urls: imageUrls.length > 0 ? imageUrls : null,
-    })
-
-    if (!error) {
-      await fetchReviews(therapist.id)
-      setNickname('')
-      setRating(5)
-      setContent('')
-      setReviewImages([])
-      setReviewImagePreviews([])
-      setShowReviewForm(false)
-    }
-    setSubmitting(false)
-  }
-
-  const averageRating = reviews.length > 0
-    ? (reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length).toFixed(1)
+  // 평점 = 회원이 공개에 동의하며 남긴 만족도 별점 평균 (별점을 남긴 후기만)
+  const rated = reviews.filter((r) => r.member_rating != null)
+  const averageRating = rated.length > 0
+    ? (rated.reduce((sum, r) => sum + (r.member_rating ?? 0), 0) / rated.length).toFixed(1)
     : null
 
   const getTypeInfo = (type: string) => ({ label: practitionerLabel(type), color: 'bg-emerald-50 text-emerald-700' })
@@ -200,7 +135,7 @@ export default function TherapistDetailPage() {
     { id: 'specialty', label: '전문분야', show: bodyParts.length > 0 || purposes.length > 0 },
     { id: 'faq', label: '질문답변', show: faqItems.length > 0 },
     { id: 'certs', label: '자격', show: !!(therapist?.certifications && therapist.certifications.length > 0) },
-    { id: 'reviews', label: '후기', show: true },
+    { id: 'reviews', label: '진행 후기', show: true },
   ].filter(t => t.show)
 
   // 스크롤 위치에 따라 활성 탭 갱신
@@ -314,6 +249,12 @@ export default function TherapistDetailPage() {
             <span className={'inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold ' + typeInfo.color}>
               {typeInfo.label}
             </span>
+            {crew && (crew.tier === '든든' || crew.tier === '으뜸') && (
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-white/95 text-gray-800 text-[11px] font-bold rounded-full">
+                <TierIcon tier={crew.tier} size={12} />
+                {crew.tier} 크루
+              </span>
+            )}
           </div>
 
           <h1 className="text-[26px] font-extrabold leading-tight drop-shadow">{therapist.name}</h1>
@@ -329,7 +270,7 @@ export default function TherapistDetailPage() {
               <span className="flex items-center gap-1">
                 <span className="text-yellow-400">★</span>
                 {averageRating}
-                <span className="text-white/70 font-normal">리뷰 {reviews.length}</span>
+                <span className="text-white/70 font-normal">진행 후기 {reviews.length}</span>
               </span>
             )}
             {certList.length > 0 && (
@@ -475,144 +416,49 @@ export default function TherapistDetailPage() {
         </section>
       )}
 
-      {/* ===== 후기 ===== */}
+      {/* ===== 진행 후기 (전문가가 쓰고 회원이 공개에 동의) ===== */}
       <section id="reviews" className="bg-white px-5 py-5 mb-2 scroll-mt-28">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h3 className="text-base font-bold text-gray-900">⭐ 후기 {reviews.length}개</h3>
-            {averageRating && (
-              <p className="text-xs text-gray-400 mt-0.5">평균 {averageRating}점</p>
-            )}
-          </div>
-          <button
-            onClick={() => setShowReviewForm(!showReviewForm)}
-            className="px-4 py-2 bg-[#0A8A7B] text-white rounded-xl text-xs font-bold active:scale-95 transition"
-          >
-            {showReviewForm ? '취소' : '후기 작성'}
-          </button>
+        <div className="flex items-end justify-between mb-1">
+          <h3 className="text-base font-bold text-gray-900">📝 진행 후기 {reviews.length}</h3>
+          {averageRating && (
+            <p className="text-[13px] text-gray-500">
+              <span className="text-[#F59E0B]">★</span> 회원 만족도 {averageRating} ({rated.length})
+            </p>
+          )}
         </div>
-
-        {showReviewForm && (
-          <div className="bg-gray-50 rounded-2xl p-4 mb-4 space-y-3">
-            <div>
-              <label className="text-xs font-bold text-gray-600 block mb-1.5">닉네임</label>
-              <input
-                type="text"
-                value={nickname}
-                onChange={(e) => setNickname(e.target.value)}
-                placeholder="닉네임 입력"
-                maxLength={20}
-                className="w-full p-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#0A8A7B]"
-              />
-            </div>
-
-            <div>
-              <label className="text-xs font-bold text-gray-600 block mb-1.5">별점</label>
-              <div className="flex gap-2">
-                {[1, 2, 3, 4, 5].map(star => (
-                  <button
-                    key={star}
-                    onClick={() => setRating(star)}
-                    className="text-2xl transition-all active:scale-90"
-                  >
-                    {star <= rating ? '⭐' : '✩'}
-                  </button>
-                ))}
-                <span className="text-sm text-gray-500 ml-1 self-center">{rating}점</span>
-              </div>
-            </div>
-
-            <div>
-              <label className="text-xs font-bold text-gray-600 block mb-1.5">
-                후기 내용 <span className="text-gray-400 font-normal">(최소 10자)</span>
-              </label>
-              <textarea
-                value={content}
-                onChange={(e) => setContent(e.target.value)}
-                placeholder="운동 지도를 받은 경험을 자유롭게 적어 주세요"
-                rows={4}
-                className="w-full p-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#0A8A7B] resize-none"
-              />
-              <p className="text-xs text-gray-400 text-right mt-1">{content.length}자</p>
-            </div>
-
-            <div>
-              <label className="text-xs font-bold text-gray-600 block mb-1.5">
-                사진 첨부 <span className="text-gray-400 font-normal">(선택 · 1장)</span>
-              </label>
-              <div className="flex flex-wrap gap-2">
-                {reviewImagePreviews.map((src, i) => (
-                  <div key={i} className="relative w-16 h-16 rounded-xl overflow-hidden border border-gray-200">
-                    <img src={src} alt={`첨부 ${i + 1}`} className="w-full h-full object-cover" />
-                    <button
-                      onClick={() => removeReviewImage(i)}
-                      className="absolute top-0.5 right-0.5 w-5 h-5 flex items-center justify-center rounded-full bg-black/60 text-white text-xs leading-none"
-                      aria-label="사진 삭제"
-                    >
-                      ×
-                    </button>
-                  </div>
-                ))}
-                {reviewImages.length < MAX_REVIEW_IMAGES && (
-                  <label className="w-16 h-16 rounded-xl border border-dashed border-gray-300 flex flex-col items-center justify-center text-gray-400 cursor-pointer hover:border-[#0A8A7B] hover:text-[#0A8A7B] transition">
-                    <span className="text-lg leading-none">＋</span>
-                    <span className="text-[10px] mt-0.5">사진</span>
-                    <input type="file" accept="image/*" onChange={handleReviewImageSelect} className="hidden" />
-                  </label>
-                )}
-              </div>
-            </div>
-
-            <button
-              onClick={handleSubmitReview}
-              disabled={submitting || !nickname.trim() || content.trim().length < 10}
-              className={'w-full py-3 rounded-xl font-bold text-sm transition-all ' + (!submitting && nickname.trim() && content.trim().length >= 10 ? 'bg-[#0A8A7B] text-white' : 'bg-gray-200 text-gray-400 cursor-not-allowed')}
-            >
-              {submitting ? '등록 중...' : '후기 등록'}
-            </button>
-          </div>
-        )}
+        <p className="text-[12px] text-gray-400 leading-relaxed mb-4">{REVIEW_DISCLAIMER}</p>
 
         {reviews.length === 0 ? (
           <div className="text-center py-8">
-            <p className="text-gray-400 text-sm">아직 후기가 없습니다</p>
-            <p className="text-gray-300 text-xs mt-1">첫 번째 후기를 남겨보세요!</p>
+            <p className="text-gray-500 text-[15px]">아직 공개된 진행 후기가 없어요</p>
+            <p className="text-gray-400 text-[13px] mt-1">10회 이상 함께한 회원이 공개에 동의하면 여기에 보여요</p>
           </div>
         ) : (
           <div className="space-y-3">
-            {reviews.map(review => (
-              <div key={review.id} className="border border-gray-100 rounded-2xl p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center shrink-0">
-                      <span className="text-xs font-bold text-gray-400">{review.nickname.slice(0, 1)}</span>
-                    </div>
-                    <div>
-                      <span className="text-sm font-bold text-gray-800 block leading-none mb-1">{review.nickname}</span>
-                      <span className="text-yellow-400 text-xs">{'⭐'.repeat(review.rating)}</span>
-                    </div>
-                  </div>
-                  <span className="text-xs text-gray-300">
-                    {new Date(review.created_at).toLocaleDateString('ko-KR')}
-                  </span>
+            {reviews.map((r) => (
+              <Link key={r.id} href={`/reviews/${r.id}`} className="block border border-gray-100 rounded-2xl overflow-hidden active:bg-gray-50">
+                <div className="flex gap-1 h-28 bg-gray-100">
+                  {r.photos.slice(0, 3).map((u, i) => (
+                    <img key={u} src={u} alt={`진행 사진 ${i + 1}`} className="flex-1 min-w-0 h-full object-cover" />
+                  ))}
                 </div>
-                <p className="text-sm text-gray-600 leading-relaxed">{review.content}</p>
-                {review.image_urls && review.image_urls.length > 0 && (
-                  <div className="flex gap-2 mt-3 overflow-x-auto -mx-1 px-1 pb-1">
-                    {review.image_urls.map((url, i) => (
-                      <a
-                        key={i}
-                        href={url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="shrink-0 w-24 h-24 rounded-xl overflow-hidden border border-gray-100"
-                      >
-                        <img src={url} alt={`후기 사진 ${i + 1}`} className="w-full h-full object-cover" />
-                      </a>
-                    ))}
+                <div className="p-4">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[15px] font-bold text-gray-900 truncate">
+                      {r.member_label} · {r.age_band} · {r.sessions}회
+                    </span>
+                    {r.member_rating != null && (
+                      <span className="text-[#F59E0B] text-[13px] shrink-0" aria-label={`만족도 ${r.member_rating}점`}>
+                        {stars(r.member_rating)}
+                      </span>
+                    )}
                   </div>
-                )}
-              </div>
+                  {r.purpose && <span className="inline-block mt-1.5 px-2 py-0.5 bg-[#E8F6F4] text-[#0F6E56] text-[12px] font-semibold rounded-md">{r.purpose}</span>}
+                  <p className="text-[14px] text-gray-600 leading-relaxed mt-2 line-clamp-2">{r.changes}</p>
+                  {r.member_comment && <p className="text-[13px] text-gray-500 mt-1.5 line-clamp-1">회원: “{r.member_comment}”</p>}
+                  <p className="text-[13px] font-semibold text-[#0A8A7B] mt-2">자세히 보기 ›</p>
+                </div>
+              </Link>
             ))}
           </div>
         )}

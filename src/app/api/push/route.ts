@@ -6,6 +6,10 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin'
 //  · message: 내가 방금 보낸 메시지 → 대화 상대에게
 //  · accept : 내가 방금 수락한 상담 → 요청한 회원에게
 //  · consult: 내가 방금 낸 상담 요청 → 근처 승인 전문가에게
+//  · review_request: 전문가가 낸 진행 후기 → 해당 회원에게 (공개 동의 요청)
+//  · review_decided: 회원의 공개 동의·거절 → 쓴 전문가에게
+//  · referral: 전문가가 크루원을 추천 → 회원에게
+//  · referral_accepted: 회원이 추천을 수락 → 추천받은 크루원(새 대화방)과 추천한 전문가에게
 // 같은 일로 두 번 보내지 않도록 표(pushed_at 등)에 표시한다. 알림 글에는 건강 정보·대화 내용을 넣지 않는다.
 
 export const runtime = 'nodejs'
@@ -125,6 +129,100 @@ export async function POST(req: NextRequest) {
       tag: `consult-${r.id}`,
     })
     return NextResponse.json({ ok: true, targets: ids.length, sent })
+  }
+
+  // ④ 진행 후기 공개 동의 요청
+  if (body.type === 'review_request' && typeof body.review_id === 'string') {
+    const { data: r } = await supabaseAdmin
+      .from('case_reviews')
+      .select('id, expert_user_id, guardian_id, status, submitted_at, pushed_at, therapists(name)')
+      .eq('id', body.review_id)
+      .single()
+    if (!r || r.expert_user_id !== me || !r.guardian_id || r.status !== 'pending' || r.pushed_at || !recent(r.submitted_at, 10)) return NextResponse.json({ ok: false })
+    const { data: claimed } = await supabaseAdmin.from('case_reviews').update({ pushed_at: new Date().toISOString() }).eq('id', r.id).is('pushed_at', null).select('id')
+    if (!claimed || claimed.length === 0) return NextResponse.json({ ok: false })
+    const t = r.therapists as unknown as { name: string } | null
+    const sent = await sendToUsers([r.guardian_id], {
+      title: '진행 후기 공개 동의를 요청했어요',
+      body: `${t?.name ?? '전문가'}님(물리치료사)이 함께한 운동 기록을 올리려고 해요 · 눌러서 확인해 주세요`,
+      url: `/reviews/${r.id}`,
+      tag: `review-${r.id}`,
+    })
+    return NextResponse.json({ ok: true, sent })
+  }
+
+  // ⑤ 진행 후기 동의·거절 결과
+  if (body.type === 'review_decided' && typeof body.review_id === 'string') {
+    const { data: r } = await supabaseAdmin
+      .from('case_reviews')
+      .select('id, expert_user_id, guardian_id, status, decided_at, decided_pushed_at')
+      .eq('id', body.review_id)
+      .single()
+    if (!r || r.guardian_id !== me || !r.decided_at || r.decided_pushed_at || !recent(r.decided_at, 10)) return NextResponse.json({ ok: false })
+    const { data: claimed } = await supabaseAdmin.from('case_reviews').update({ decided_pushed_at: new Date().toISOString() }).eq('id', r.id).is('decided_pushed_at', null).select('id')
+    if (!claimed || claimed.length === 0) return NextResponse.json({ ok: false })
+    const ok = r.status === 'published'
+    const sent = await sendToUsers([r.expert_user_id], {
+      title: ok ? '진행 후기가 공개됐어요' : '회원이 진행 후기를 공개하지 않기로 했어요',
+      body: ok ? '회원이 공개에 동의했어요. 내 프로필에서 확인해 보세요' : '눌러서 이유를 확인하고, 고쳐서 다시 요청할 수 있어요',
+      url: `/reviews/${r.id}`,
+      tag: `review-${r.id}`,
+    })
+    return NextResponse.json({ ok: true, sent })
+  }
+
+  // ⑥ 크루원 추천 → 회원
+  if (body.type === 'referral' && typeof body.referral_id === 'string') {
+    const { data: f } = await supabaseAdmin
+      .from('referrals')
+      .select('id, room_id, guardian_id, from_user_id, status, created_at, pushed_at, from_t:therapists!referrals_from_therapist_id_fkey(name), to_t:therapists!referrals_to_therapist_id_fkey(name)')
+      .eq('id', body.referral_id)
+      .single()
+    if (!f || f.from_user_id !== me || !f.guardian_id || f.status !== 'pending' || f.pushed_at || !recent(f.created_at, 10)) return NextResponse.json({ ok: false })
+    const { data: claimed } = await supabaseAdmin.from('referrals').update({ pushed_at: new Date().toISOString() }).eq('id', f.id).is('pushed_at', null).select('id')
+    if (!claimed || claimed.length === 0) return NextResponse.json({ ok: false })
+    const from = f.from_t as unknown as { name: string } | null
+    const to = f.to_t as unknown as { name: string } | null
+    const sent = await sendToUsers([f.guardian_id], {
+      title: `${from?.name ?? '전문가'}님이 동료 물리치료사를 추천했어요`,
+      body: `같은 크루의 ${to?.name ?? '물리치료사'}님 · 눌러서 연결할지 골라 주세요`,
+      url: `/chat/${f.room_id}`,
+      tag: `room-${f.room_id}`,
+    })
+    return NextResponse.json({ ok: true, sent })
+  }
+
+  // ⑦ 회원이 추천을 수락 → 추천받은 크루원(새 대화) + 추천한 전문가
+  if (body.type === 'referral_accepted' && typeof body.referral_id === 'string') {
+    const { data: f } = await supabaseAdmin
+      .from('referrals')
+      .select('id, guardian_id, from_user_id, to_user_id, new_room_id, status, decided_at, decided_pushed_at, to_t:therapists!referrals_to_therapist_id_fkey(name)')
+      .eq('id', body.referral_id)
+      .single()
+    if (!f || f.guardian_id !== me || f.status !== 'accepted' || !f.new_room_id || !f.decided_at || f.decided_pushed_at || !recent(f.decided_at, 10)) {
+      return NextResponse.json({ ok: false })
+    }
+    const { data: claimed } = await supabaseAdmin.from('referrals').update({ decided_pushed_at: new Date().toISOString() }).eq('id', f.id).is('decided_pushed_at', null).select('id')
+    if (!claimed || claimed.length === 0) return NextResponse.json({ ok: false })
+    const to = f.to_t as unknown as { name: string } | null
+    let sent = 0
+    if (f.to_user_id) {
+      sent += await sendToUsers([f.to_user_id], {
+        title: '크루원 추천으로 새 회원과 연결됐어요',
+        body: '눌러서 요청서를 확인하고 먼저 인사해 보세요',
+        url: `/chat/${f.new_room_id}`,
+        tag: `room-${f.new_room_id}`,
+      })
+    }
+    if (f.from_user_id) {
+      sent += await sendToUsers([f.from_user_id], {
+        title: '추천이 연결됐어요 🤝',
+        body: `회원이 ${to?.name ?? '크루원'}님과 연결했어요 · 협력 포인트 +10`,
+        url: '/crew',
+        tag: `referral-${f.id}`,
+      })
+    }
+    return NextResponse.json({ ok: true, sent })
   }
 
   return NextResponse.json({ error: '잘못된 요청' }, { status: 400 })

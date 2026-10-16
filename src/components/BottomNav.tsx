@@ -3,7 +3,7 @@
 // 하단 탭 — 모드마다 다르게
 // · 회원 모드:   홈 · 전문가 찾기 · 받은 견적 · 채팅 · 둘러보기
 // · 전문가 모드: 홈 · 받은 요청 · 채팅 · 스케줄 · 크루   (프로필·구독은 홈 오른쪽 위 → MY / 홈 메뉴)
-// '채팅'에는 지금 모드의 안 읽은 메시지 수가 붙는다.
+// '채팅'에는 지금 모드의 안 읽은 메시지 수, '크루'에는 크루 채팅 안 읽은 수가 붙는다.
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useEffect, useState, type ReactNode } from 'react'
@@ -75,10 +75,13 @@ interface RoomLite {
 }
 
 // 탭을 옮길 때마다 서버에 묻지 않도록 20초 동안 기억
-let cache: { at: number; userId: string; member: number; expert: number } | null = null
+type Counts = { member: number; expert: number; crew: number }
+let cache: ({ at: number; userId: string; withCrew: boolean } & Counts) | null = null
+const ZERO: Counts = { member: 0, expert: 0, crew: 0 }
+const pick = (c: Counts): Counts => ({ member: c.member, expert: c.expert, crew: c.crew })
 
-function useUnreadByMode(): { member: number; expert: number } {
-  const [state, setState] = useState(() => (cache ? { member: cache.member, expert: cache.expert } : { member: 0, expert: 0 }))
+function useUnreadByMode(withCrew: boolean): Counts {
+  const [state, setState] = useState<Counts>(() => (cache ? pick(cache) : ZERO))
 
   useEffect(() => {
     let alive = true
@@ -87,18 +90,22 @@ function useUnreadByMode(): { member: number; expert: number } {
       const uid = data.session?.user.id
       if (!uid) {
         cache = null
-        if (alive) setState({ member: 0, expert: 0 })
+        if (alive) setState(ZERO)
         return
       }
-      if (!force && cache && cache.userId === uid && Date.now() - cache.at < 20_000) {
-        if (alive) setState({ member: cache.member, expert: cache.expert })
+      if (!force && cache && cache.userId === uid && cache.withCrew === withCrew && Date.now() - cache.at < 20_000) {
+        if (alive) setState(pick(cache))
         return
       }
-      const { data: rooms } = await supabase.rpc('my_chat_rooms')
+      const [{ data: rooms }, crewRes] = await Promise.all([
+        supabase.rpc('my_chat_rooms'),
+        withCrew ? supabase.rpc('my_crew_unread') : Promise.resolve({ data: 0 }),
+      ])
       const list: RoomLite[] = Array.isArray(rooms) ? (rooms as RoomLite[]) : []
       const sum = (role: RoomLite['role']) => list.filter((r) => r.role === role).reduce((n, r) => n + (r.unread || 0), 0)
-      cache = { at: Date.now(), userId: uid, member: sum('guardian'), expert: sum('expert') }
-      if (alive) setState({ member: cache.member, expert: cache.expert })
+      const crew = typeof crewRes.data === 'number' ? crewRes.data : 0
+      cache = { at: Date.now(), userId: uid, withCrew, member: sum('guardian'), expert: sum('expert'), crew }
+      if (alive) setState(pick(cache))
     }
     load(false)
     const refresh = () => load(true)
@@ -111,7 +118,7 @@ function useUnreadByMode(): { member: number; expert: number } {
       window.removeEventListener('focus', refresh)
       window.clearInterval(timer)
     }
-  }, [])
+  }, [withCrew])
 
   return state
 }
@@ -128,7 +135,7 @@ interface Tab {
 export default function BottomNav() {
   const pathname = usePathname() || '/'
   const { mode } = useAppMode()
-  const unread = useUnreadByMode()
+  const unread = useUnreadByMode(mode === 'expert')
   const on = (...prefixes: string[]) => prefixes.some((p) => pathname === p || pathname.startsWith(p + '/'))
 
   const tabs: Tab[] =
@@ -138,7 +145,7 @@ export default function BottomNav() {
           { key: 'inbox', icon: 'inbox', label: '받은 요청', href: '/quotes', active: on('/quotes', '/consult') },
           { key: 'chat', icon: 'chat', label: '채팅', href: '/chat', active: on('/chat'), badge: unread.expert },
           { key: 'schedule', icon: 'schedule', label: '스케줄', href: '/schedule', active: on('/schedule') },
-          { key: 'crew', icon: 'crew', label: '크루', href: '/crew', active: on('/crew') },
+          { key: 'crew', icon: 'crew', label: '크루', href: '/crew', active: on('/crew'), badge: unread.crew },
         ]
       : [
           { key: 'home', icon: 'home', label: '홈', href: '/', active: pathname === '/' },
@@ -175,7 +182,7 @@ export default function BottomNav() {
             </span>
             <span className="text-[12px] font-semibold whitespace-nowrap">
               {t.label}
-              {!!t.badge && t.badge > 0 && <span className="sr-only"> (안 읽은 메시지 {t.badge}개)</span>}
+              {!!t.badge && t.badge > 0 && <span className="sr-only"> (안 읽은 {t.key === 'crew' ? '크루 메시지' : '메시지'} {t.badge}개)</span>}
             </span>
           </Link>
         ))}

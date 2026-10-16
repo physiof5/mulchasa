@@ -480,16 +480,18 @@ function SearchContent() {
         therapistTagsMap[tt.therapist_id].push(label)
       })
 
-      // 각 치료사의 리뷰 평점 로드
+      // 별점 = 진행 후기를 공개하며 회원이 남긴 만족도 (남긴 것만)
       const { data: reviewData } = await supabase
-        .from('reviews')
-        .select('therapist_id, rating')
+        .from('case_reviews')
+        .select('therapist_id, member_rating')
+        .eq('status', 'published')
+        .not('member_rating', 'is', null)
         .in('therapist_id', therapistIds)
 
       const reviewMap: Record<string, { sum: number; count: number }> = {}
       ;(reviewData || []).forEach(rv => {
         if (!reviewMap[rv.therapist_id]) reviewMap[rv.therapist_id] = { sum: 0, count: 0 }
-        reviewMap[rv.therapist_id].sum += rv.rating
+        reviewMap[rv.therapist_id].sum += Number(rv.member_rating) || 0
         reviewMap[rv.therapist_id].count += 1
       })
 
