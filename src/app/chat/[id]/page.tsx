@@ -5,6 +5,7 @@
 // · 신고(최근 대화 50개 함께 보관) · 차단(두 사람 모두 보낼 수 없음, 차단한 사람만 풀 수 있음)
 // · 대화는 마지막 메시지 후 180일 뒤 자동 삭제
 // · 전문가: 크루원 추천(회원이 수락해야 새 대화방) · 진행 후기 쓰기(10회 이상, 회원이 공개에 동의해야 공개)
+// · 위쪽 '다음 방문' 막대: 스케줄에서 이 대화와 연결한 일정 (회원 확인·진행 완료·회차)
 
 import { use, useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import Link from 'next/link'
@@ -18,6 +19,7 @@ import { notifyPush } from '@/lib/push'
 import { setAppMode, storedMode, useAppMode } from '@/lib/mode'
 import { crewError, ROLE_LABEL, type CrewRole } from '@/lib/crew'
 import { findBannedPhrase, bannedMessage } from '@/lib/practitioner'
+import VisitBar from '@/components/VisitBar'
 import { TopBar, Avatar, GuardianAvatar, AnswerList, LoginNeeded, Spinner, GREEN, GREEN_DARK, GREEN_LIGHT } from '@/components/ConsultParts'
 
 interface RoomInfo {
@@ -363,6 +365,7 @@ function Room({ id, me }: { id: string; me: string }) {
           </span>
         </Link>
       )}
+      <VisitBar roomId={id} isGuardian={isGuardian} canSend={canSend} onMessage={() => pullNew()} />
 
       <div ref={listRef} onScroll={onScroll} className="flex-1 overflow-y-auto px-4 py-4">
         <div className="rounded-xl px-4 py-3 text-[13px] leading-relaxed mb-4" style={{ background: '#FFFBEB', color: '#92400E' }}>

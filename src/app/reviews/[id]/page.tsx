@@ -140,6 +140,7 @@ export default function ReviewPage({ params }: { params: Promise<{ id: string }>
         </p>
         <div className="mt-2 flex flex-wrap gap-1.5">
           <Chip>{r.sessions}회 함께함</Chip>
+          {!!r.verified_sessions && r.verified_sessions > 0 && <Chip>✓ 앱 기록 {r.verified_sessions}회 (회원 확인)</Chip>}
           {r.purpose && <Chip>{r.purpose}</Chip>}
         </div>
         {r.status === 'published' && r.member_rating && (
@@ -182,7 +183,7 @@ export default function ReviewPage({ params }: { params: Promise<{ id: string }>
       <p className="mx-5 mt-4 text-[12px] text-gray-400 leading-relaxed">{REVIEW_DISCLAIMER}</p>
 
       {/* 회원: 공개 동의 */}
-      {role === 'member' && r.status === 'pending' && <Decide id={id} label={r.member_label} sessions={r.sessions} onDone={load} />}
+      {role === 'member' && r.status === 'pending' && <Decide id={id} label={r.member_label} sessions={r.sessions} verified={r.verified_sessions ?? 0} onDone={load} />}
       {role === 'member' && r.status === 'published' && (
         <section className="mx-5 mt-5">
           <button
@@ -284,7 +285,7 @@ function Info({ text }: { text: string }) {
 }
 
 // 회원: 공개해도 될까요?
-function Decide({ id, label, sessions, onDone }: { id: string; label: string; sessions: number; onDone: () => Promise<void> }) {
+function Decide({ id, label, sessions, verified, onDone }: { id: string; label: string; sessions: number; verified: number; onDone: () => Promise<void> }) {
   const [rating, setRating] = useState(0)
   const [comment, setComment] = useState('')
   const [declining, setDeclining] = useState(false)
@@ -317,7 +318,10 @@ function Decide({ id, label, sessions, onDone }: { id: string; label: string; se
       <ul className="mt-2 space-y-1.5 text-[15px] text-gray-700 leading-relaxed">
         <li>· 위 내용이 전문가 프로필에 공개돼요. 이름 대신 <b>{label}</b>으로 보여요.</li>
         <li>· 사진에서 얼굴 등 알아볼 수 있는 부분이 가려졌는지 꼭 확인해 주세요.</li>
-        <li>· 함께한 횟수({sessions}회)가 맞는지도 봐 주세요.</li>
+        <li>
+          · 함께한 횟수({sessions}회)가 맞는지도 봐 주세요.
+          {verified > 0 && ` (앱 기록: 회원님이 ‘진행 완료’를 누른 방문 ${verified}회)`}
+        </li>
         <li>· 공개한 뒤에도 언제든 이 화면에서 내릴 수 있어요.</li>
       </ul>
 

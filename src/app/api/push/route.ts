@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import webpush from 'web-push'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
+import { PRIVATE_KEY, PUBLIC_KEY, WHO, recent, sendToUsers } from '@/lib/webpushServer'
 
 // 알림 보내기 (웹 푸시) — 화면이 '방금 이런 일이 있었어요'라고 알려 주면 서버가 확인하고 상대에게 보낸다.
 //  · message: 내가 방금 보낸 메시지 → 대화 상대에게
@@ -10,49 +10,11 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin'
 //  · review_decided: 회원의 공개 동의·거절 → 쓴 전문가에게
 //  · referral: 전문가가 크루원을 추천 → 회원에게
 //  · referral_accepted: 회원이 추천을 수락 → 추천받은 크루원(새 대화방)과 추천한 전문가에게
+//  · visit_set: 전문가가 회원과 연결한 일정을 잡거나 시간을 바꿈 → 회원에게
+//  (매일 저녁 '내일 방문'·'오늘 방문 진행 확인' 알림은 /api/cron/visits)
 // 같은 일로 두 번 보내지 않도록 표(pushed_at 등)에 표시한다. 알림 글에는 건강 정보·대화 내용을 넣지 않는다.
 
 export const runtime = 'nodejs'
-
-const PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
-const PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY
-const SUBJECT = process.env.VAPID_SUBJECT || 'mailto:spacex2025@naver.com'
-
-const WHO: Record<string, string> = { mother: '어머님', father: '아버님', spouse: '배우자', self: '본인', other: '가족' }
-
-interface Payload {
-  title: string
-  body: string
-  url: string
-  tag?: string
-}
-
-const recent = (iso: string, minutes: number) => Date.now() - new Date(iso).getTime() < minutes * 60_000
-
-async function sendToUsers(userIds: string[], payload: Payload): Promise<number> {
-  if (!PUBLIC_KEY || !PRIVATE_KEY || userIds.length === 0) return 0
-  webpush.setVapidDetails(SUBJECT, PUBLIC_KEY, PRIVATE_KEY)
-  const { data: subs } = await supabaseAdmin.from('push_subscriptions').select('id, endpoint, p256dh, auth').in('user_id', userIds)
-  let sent = 0
-  await Promise.all(
-    (subs ?? []).map(async (s) => {
-      try {
-        await webpush.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, JSON.stringify(payload), {
-          TTL: 60 * 60 * 24,
-          urgency: 'high',
-        })
-        sent++
-        await supabaseAdmin.from('push_subscriptions').update({ last_used_at: new Date().toISOString() }).eq('id', s.id)
-      } catch (e) {
-        const code = (e as { statusCode?: number }).statusCode
-        // 사라진 기기(앱 삭제·알림 해제) → 지움
-        if (code === 404 || code === 410) await supabaseAdmin.from('push_subscriptions').delete().eq('id', s.id)
-        else console.error('push send error:', code, e)
-      }
-    })
-  )
-  return sent
-}
 
 export async function POST(req: NextRequest) {
   if (!PUBLIC_KEY || !PRIVATE_KEY) return NextResponse.json({ ok: false, reason: 'not_configured' })
@@ -222,6 +184,21 @@ export async function POST(req: NextRequest) {
         tag: `referral-${f.id}`,
       })
     }
+    return NextResponse.json({ ok: true, sent })
+  }
+
+  // ⑧ 방문 일정이 잡히거나 바뀜 → 회원 (같은 시간으로는 한 번만)
+  if (body.type === 'visit_set' && typeof body.schedule_id === 'string') {
+    const { data: v } = await supabaseAdmin.rpc('claim_visit_notice', { p_id: body.schedule_id, p_user: me })
+    const n = v as { user_id: string; room_id: string; kind: string; when: string; name: string | null; changed: boolean } | null
+    if (!n) return NextResponse.json({ ok: false })
+    const what = n.kind === 'consult' ? '상담' : '방문'
+    const sent = await sendToUsers([n.user_id], {
+      title: n.changed ? `${what} 일정이 바뀌었어요` : `${what} 일정이 잡혔어요`,
+      body: `${n.when} · ${n.name ?? '전문가'}님 · 눌러서 확인해 주세요`,
+      url: `/chat/${n.room_id}`,
+      tag: `visit-${n.room_id}`,
+    })
     return NextResponse.json({ ok: true, sent })
   }
 

@@ -3,7 +3,8 @@
 // 전문가 모드 '스케줄' — 한 주 달력 + 고른 날의 일정
 // · 일정 추가·수정·삭제 (방문 지도 / 센터 지도 / 상담 / 개인 일정 / 휴무)
 // · 수락한 상담 대화와 연결할 수 있음 (채팅 메뉴 '스케줄에 일정 잡기' → ?room=대화방)
-// · 일정은 나만 볼 수 있음. 지난 일정은 1년 뒤 자동 삭제.
+// · 상담 대화와 연결한 방문·센터·상담 일정은 그 회원에게도 날짜·시간·장소·종류가 보임(제목·메모는 나만) → 회원 확인·진행 완료 표시
+// · 지난 일정은 1년 뒤 자동 삭제.
 
 import { use, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import Link from 'next/link'
@@ -13,8 +14,9 @@ import { useIsClient } from '@/lib/useDeviceStorage'
 import BottomNav from '@/components/BottomNav'
 import { LoginNeeded, Spinner, GREEN, GREEN_DARK, GREEN_LIGHT } from '@/components/ConsultParts'
 import { consultTitle, type ConsultAnswers } from '@/lib/consult'
+import { notifyPush } from '@/lib/push'
 import {
-  MEMO_MAX, PLACE_MAX, SCHEDULE_FIELDS, SCHEDULE_KINDS, TITLE_MAX, addDays, dateKey, dateLabel, dayName, fromDateKey, hhmm, itemState, kindInfo,
+  MEMO_MAX, PLACE_MAX, SCHEDULE_FIELDS, SCHEDULE_KINDS, SCHEDULE_VISIT_FIELDS, SHARED_KINDS, TITLE_MAX, addDays, dateKey, dateLabel, dayName, fromDateKey, hhmm, itemState, kindInfo,
   toIso, todayKey, weekStart, type ScheduleItem, type ScheduleKind,
 } from '@/lib/schedule'
 
@@ -41,6 +43,8 @@ type Draft = {
   place: string
   memo: string
   room_id: string
+  /** 전문가 '진행 완료' 표시 (지난 연결 일정) */
+  done: boolean
 }
 
 const PLACEHOLDER: Record<ScheduleKind, string> = {
@@ -101,6 +105,7 @@ function Schedule({ roomParam }: { roomParam: string | null }) {
   const [rooms, setRooms] = useState<RoomOption[]>([])
   const [draft, setDraft] = useState<Draft | null>(null)
   const [reload, setReload] = useState(0)
+  const [visitFields, setVisitFields] = useState(true)
   const roomOpened = useRef(false)
 
   const ws = useMemo(() => weekStart(fromDateKey(selected)), [selected])
@@ -111,17 +116,24 @@ function Schedule({ roomParam }: { roomParam: string | null }) {
   useEffect(() => {
     let alive = true
     const from = fromDateKey(wsKey)
-    supabase
-      .from('expert_schedule')
-      .select(SCHEDULE_FIELDS)
-      .gte('starts_at', from.toISOString())
-      .lt('starts_at', addDays(from, 7).toISOString())
-      .order('starts_at', { ascending: true })
-      .then(({ data, error }) => {
-        if (!alive) return
-        setLoadError(error ? friendly(error) : '')
-        setItems((data as ScheduleItem[]) ?? [])
-      })
+    const query = (fields: string) =>
+      supabase.from('expert_schedule').select(fields).gte('starts_at', from.toISOString()).lt('starts_at', addDays(from, 7).toISOString()).order('starts_at', { ascending: true })
+    // 회원 답 칸(day17)이 아직 없으면 기본 칸만
+    query(SCHEDULE_VISIT_FIELDS).then(async ({ data, error }) => {
+      let rows = data as unknown as ScheduleItem[] | null
+      let err = error
+      let ext = true
+      if (error?.code === '42703') {
+        const r = await query(SCHEDULE_FIELDS)
+        rows = r.data as unknown as ScheduleItem[] | null
+        err = r.error
+        ext = false
+      }
+      if (!alive) return
+      setVisitFields(ext)
+      setLoadError(err ? friendly(err) : '')
+      setItems(rows ?? [])
+    })
     return () => {
       alive = false
     }
@@ -279,6 +291,7 @@ function Schedule({ roomParam }: { roomParam: string | null }) {
                     <span className="block text-[16px] font-bold text-gray-900 mt-1 truncate">{it.title}</span>
                     {it.place && <span className="block text-[14px] text-gray-500 truncate">📍 {it.place}</span>}
                     {it.room_id && <span className="block text-[13px] mt-0.5 truncate" style={{ color: GREEN_DARK }}>💬 {roomLabel(it.room_id) ?? '연결된 대화'}</span>}
+                    {it.room_id && SHARED_KINDS.includes(it.kind) && it.member_answer !== undefined && <MemberChip it={it} past={st === 'past'} />}
                   </span>
                 </button>
               )
@@ -292,13 +305,16 @@ function Schedule({ roomParam }: { roomParam: string | null }) {
             ›
           </span>
         </Link>
-        <p className="mt-3 text-[13px] text-gray-400 leading-relaxed">일정은 나만 볼 수 있어요. 지난 일정은 1년 뒤 자동으로 지워져요.</p>
+        <p className="mt-3 text-[13px] text-gray-400 leading-relaxed">
+          상담 대화와 연결한 방문·센터·상담 일정은 그 회원에게도 날짜·시간·장소가 보여요(제목·메모는 나만). 지난 일정은 1년 뒤 자동으로 지워져요.
+        </p>
       </section>
 
       {draft && (
         <ScheduleSheet
           draft={draft}
           rooms={rooms}
+          visitFields={visitFields}
           onClose={() => setDraft(null)}
           onSaved={(day) => {
             setDraft(null)
@@ -312,7 +328,7 @@ function Schedule({ roomParam }: { roomParam: string | null }) {
 }
 
 function newDraft(day: string, extra: Partial<Draft> = {}): Draft {
-  return { kind: 'visit', title: '', day, start: '10:00', end: '11:00', place: '', memo: '', room_id: '', ...extra }
+  return { kind: 'visit', title: '', day, start: '10:00', end: '11:00', place: '', memo: '', room_id: '', done: false, ...extra }
 }
 
 function toDraft(it: ScheduleItem): Draft {
@@ -326,16 +342,54 @@ function toDraft(it: ScheduleItem): Draft {
     place: it.place,
     memo: it.memo,
     room_id: it.room_id ?? '',
+    done: !!it.expert_done_at,
   }
 }
 
-function ScheduleSheet({ draft: init, rooms, onClose, onSaved }: { draft: Draft; rooms: RoomOption[]; onClose: () => void; onSaved: (day: string) => void }) {
+/** 연결한 회원의 답 (다가오는 일정: 확인 여부 / 지난 방문: 진행 확인) */
+function MemberChip({ it, past }: { it: ScheduleItem; past: boolean }) {
+  let s: { t: string; bg: string; c: string }
+  if (past && it.kind !== 'consult') {
+    s =
+      it.member_result === 'done'
+        ? { t: '✓ 회원 진행 확인', bg: GREEN_LIGHT, c: GREEN_DARK }
+        : it.member_result === 'missed'
+          ? { t: '회원: 진행 안 함', bg: '#F3F4F6', c: '#6B7280' }
+          : { t: it.expert_done_at ? '완료 표시 · 회원 확인 전' : '진행 확인 전', bg: '#FFF7ED', c: '#B45309' }
+  } else if (past) {
+    return null
+  } else {
+    s =
+      it.member_answer === 'confirmed'
+        ? { t: '✓ 회원 확인', bg: GREEN_LIGHT, c: GREEN_DARK }
+        : it.member_answer === 'change'
+          ? { t: '회원이 시간 변경 요청', bg: '#FFF7ED', c: '#B45309' }
+          : { t: '회원 확인 전', bg: '#F3F4F6', c: '#6B7280' }
+  }
+  return (
+    <span className="inline-flex mt-1.5 items-center min-h-[24px] px-2 rounded-md text-[12px] font-bold" style={{ background: s.bg, color: s.c }}>
+      {s.t}
+    </span>
+  )
+}
+
+function ScheduleSheet({
+  draft: init, rooms, visitFields, onClose, onSaved,
+}: {
+  draft: Draft
+  rooms: RoomOption[]
+  visitFields: boolean
+  onClose: () => void
+  onSaved: (day: string) => void
+}) {
   const [d, setD] = useState<Draft>(init)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setD((x) => ({ ...x, [k]: v }))
   const title = d.title.trim() || (d.kind === 'off' ? '휴무' : '')
   const timeOk = d.end > d.start
+  const shared = !!d.room_id && SHARED_KINDS.includes(d.kind)
+  const sharedPast = shared && d.kind !== 'consult' && !!d.id && new Date(toIso(d.day, d.start)).getTime() <= new Date().getTime()
   const canSave = !!title && !!d.day && timeOk && !busy
 
   const save = useCallback(async () => {
@@ -357,14 +411,19 @@ function ScheduleSheet({ draft: init, rooms, onClose, onSaved }: { draft: Draft;
       place: d.place.trim().slice(0, PLACE_MAX),
       memo: d.memo.trim().slice(0, MEMO_MAX),
       room_id: d.room_id || null,
+      ...(visitFields && sharedPast ? { expert_done_at: d.done ? new Date().toISOString() : null } : {}),
     }
-    const { error: e } = d.id
-      ? await supabase.from('expert_schedule').update(row).eq('id', d.id)
-      : await supabase.from('expert_schedule').insert({ ...row, user_id: uid })
+    const { data: saved, error: e } = d.id
+      ? await supabase.from('expert_schedule').update(row).eq('id', d.id).select('id').single()
+      : await supabase.from('expert_schedule').insert({ ...row, user_id: uid }).select('id').single()
     setBusy(false)
     if (e) return setError(friendly(e))
+    // 회원과 연결한 다가오는 일정 → 회원에게 '일정이 잡혔어요/바뀌었어요' 알림 (같은 시간이면 다시 보내지 않음)
+    if (saved && row.room_id && SHARED_KINDS.includes(row.kind) && new Date(row.starts_at).getTime() > Date.now()) {
+      notifyPush({ type: 'visit_set', schedule_id: (saved as { id: string }).id })
+    }
     onSaved(d.day)
-  }, [canSave, d, title, onSaved])
+  }, [canSave, d, title, onSaved, visitFields, sharedPast])
 
   const remove = async () => {
     if (!d.id || !confirm('이 일정을 지울까요?')) return
@@ -445,11 +504,26 @@ function ScheduleSheet({ draft: init, rooms, onClose, onSaved }: { draft: Draft;
           </label>
         )}
 
+        {shared && (
+          <p className="mt-2 rounded-xl px-3 py-2 text-[13px] leading-relaxed" style={{ background: GREEN_LIGHT, color: GREEN_DARK }}>
+            이 회원에게도 날짜·시간·장소·종류가 보이고, 회원이 확인하거나 시간 변경을 요청할 수 있어요. 제목·메모는 나만 봐요.
+          </p>
+        )}
+        {visitFields && sharedPast && (
+          <label className="mt-3 flex items-center gap-3 min-h-[52px] px-4 rounded-xl border border-gray-200 cursor-pointer">
+            <input type="checkbox" checked={d.done} onChange={(e) => set('done', e.target.checked)} className="w-6 h-6 accent-[#0A8A7B]" />
+            <span className="flex-1">
+              <span className="block text-[15px] font-semibold text-gray-800">진행 완료로 표시</span>
+              <span className="block text-[12px] text-gray-500">회원이 ‘진행 완료’를 눌러야 확인된 회차로 세요</span>
+            </span>
+          </label>
+        )}
+
         <label className="block mt-3">
           <span className="text-[14px] font-bold text-gray-700">메모 (선택)</span>
           <textarea value={d.memo} onChange={(e) => set('memo', e.target.value.slice(0, MEMO_MAX))} rows={2} className="mt-1 w-full p-3 border border-gray-200 rounded-xl text-[15px] focus:outline-none focus:border-[#0A8A7B] resize-none" />
         </label>
-        <p className="text-[13px] text-gray-400 mt-1 leading-relaxed">회원의 이름·연락처·건강 정보는 꼭 필요한 만큼만 적어 주세요. 일정은 나만 볼 수 있어요.</p>
+        <p className="text-[13px] text-gray-400 mt-1 leading-relaxed">회원의 이름·연락처·건강 정보는 꼭 필요한 만큼만 적어 주세요. 메모는 나만 볼 수 있어요.</p>
 
         {error && <p className="text-[14px] text-red-500 mt-3">{error}</p>}
 

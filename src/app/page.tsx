@@ -10,6 +10,7 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import BottomNav from '@/components/BottomNav'
 import HomeActivity from '@/components/HomeActivity'
+import HomeVisits from '@/components/HomeVisits'
 import ExpertHome from '@/components/ExpertHome'
 import { useAppMode } from '@/lib/mode'
 import { REVIEW_DISCLAIMER, stars, type PublicReview } from '@/lib/reviews'
@@ -149,6 +150,7 @@ export default function Home() {
       </div>
 
       {/* 진행 중인 상담 (로그인 + 진행 중인 일이 있을 때만) */}
+      <HomeVisits />
       <HomeActivity />
 
       {/* 매칭 대시보드 */}

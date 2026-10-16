@@ -16,6 +16,7 @@ import {
   memberLabel, parseLabel, photoPath, reviewError, textProblem, type CaseReview, type CaseReviewView, type LabelStyle, type TextKey,
 } from '@/lib/reviews'
 import MosaicEditor from '@/components/MosaicEditor'
+import type { RoomVisits } from '@/lib/visits'
 import { TopBar, LoginNeeded, Spinner, GREEN, GREEN_DARK, GREEN_LIGHT } from '@/components/ConsultParts'
 
 interface RoomLite {
@@ -52,7 +53,7 @@ export default function ReviewWritePage({ searchParams }: { searchParams: Promis
 }
 
 function Loader({ room, me }: { room: string | null; me: string }) {
-  const [state, setState] = useState<{ info: RoomLite; existing: CaseReview | null } | { error: string } | undefined>(undefined)
+  const [state, setState] = useState<{ info: RoomLite; existing: CaseReview | null; verified: number } | { error: string } | undefined>(undefined)
 
   useEffect(() => {
     let alive = true
@@ -67,7 +68,10 @@ function Loader({ room, me }: { room: string | null; me: string }) {
         const { data: v } = await supabase.rpc('get_case_review', { p_id: info.review.id })
         existing = (v as CaseReviewView | null)?.review ?? null
       }
-      return { info, existing }
+      // 앱 기록: 회원이 '진행 완료'를 누른 방문 수 (day17 전이면 0)
+      const { data: vis } = await supabase.rpc('room_visits', { p_room: room })
+      const verified = (vis as RoomVisits | null)?.verified ?? 0
+      return { info, existing, verified }
     }
     run().then((s) => alive && setState(s))
     return () => {
@@ -115,16 +119,16 @@ function Loader({ room, me }: { room: string | null; me: string }) {
       </main>
     )
   }
-  return <Form room={room!} me={me} info={state.info} existing={ex} />
+  return <Form room={room!} me={me} info={state.info} existing={ex} verified={state.verified} />
 }
 
-function Form({ room, me, info, existing }: { room: string; me: string; info: RoomLite; existing: CaseReview | null }) {
+function Form({ room, me, info, existing, verified }: { room: string; me: string; info: RoomLite; existing: CaseReview | null; verified: number }) {
   const router = useRouter()
   const init = existing ? parseLabel(existing.member_label) : { surname: '', style: 'OO' as LabelStyle }
   const [surname, setSurname] = useState(init.surname)
   const [style, setStyle] = useState<LabelStyle>(init.style)
   const [age, setAge] = useState<string>(existing?.age_band ?? '')
-  const [sessions, setSessions] = useState<number>(existing?.sessions ?? SESSIONS_MIN)
+  const [sessions, setSessions] = useState<number>(existing?.sessions ?? Math.max(SESSIONS_MIN, verified))
   const [purpose, setPurpose] = useState(existing?.purpose ?? '')
   const [texts, setTexts] = useState<Record<TextKey, string>>({
     first_state: existing?.first_state ?? '',
@@ -325,6 +329,7 @@ function Form({ room, me, info, existing }: { room: string; me: string; info: Ro
         </div>
         <p className="text-[13px] mt-2" style={{ color: sessions < SESSIONS_MIN ? '#EF4444' : '#6B7280' }}>
           {SESSIONS_MIN}회 이상부터 쓸 수 있어요. 회원이 공개 동의할 때 함께 확인해요.
+          {verified > 0 && ` 앱 기록: 회원이 ‘진행 완료’를 누른 방문 ${verified}회 (후기에 함께 표시돼요).`}
         </p>
       </Section>
 

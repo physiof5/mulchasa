@@ -73,6 +73,8 @@ export interface CaseReview {
   member_comment: string
   decline_reason: string
   submit_count: number
+  /** 후기를 낼 때 회원이 '진행 완료'를 누른 방문 수 (day17) */
+  verified_sessions?: number
   submitted_at: string
   decided_at: string | null
   published_at: string | null

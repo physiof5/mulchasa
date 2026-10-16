@@ -125,6 +125,7 @@ export type PushEvent =
   | { type: 'review_decided'; review_id: string }
   | { type: 'referral'; referral_id: string }
   | { type: 'referral_accepted'; referral_id: string }
+  | { type: 'visit_set'; schedule_id: string }
 
 /** 상대에게 알림을 보내 달라고 서버에 알림 (실패해도 화면 흐름은 그대로) */
 export function notifyPush(event: PushEvent): void {

@@ -23,9 +23,17 @@ export interface ScheduleItem {
   place: string
   memo: string
   room_id: string | null
+  /** day17 이후: 연결한 회원의 답·진행 기록 */
+  member_answer?: 'none' | 'confirmed' | 'change'
+  member_result?: 'done' | 'missed' | null
+  expert_done_at?: string | null
 }
 
 export const SCHEDULE_FIELDS = 'id, kind, title, starts_at, ends_at, place, memo, room_id'
+/** 회원 답까지 (day17 SQL 실행 뒤) */
+export const SCHEDULE_VISIT_FIELDS = SCHEDULE_FIELDS + ', member_answer, member_result, expert_done_at'
+/** 회원에게도 보이는 일정 종류 (상담 대화와 연결했을 때) */
+export const SHARED_KINDS: ScheduleKind[] = ['visit', 'center', 'consult']
 export const TITLE_MAX = 60
 export const PLACE_MAX = 60
 export const MEMO_MAX = 300
