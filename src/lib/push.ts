@@ -19,6 +19,25 @@ export type PushState =
 
 const PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? ''
 const SW_URL = '/sw.js'
+/** 사용자가 이 기기에서 알림을 끈(또는 로그아웃한) 표시 — 있으면 자동으로 다시 켜지 않음 */
+const OFF_KEY = 'push_off'
+
+function setOffFlag(on: boolean) {
+  try {
+    if (on) localStorage.setItem(OFF_KEY, '1')
+    else localStorage.removeItem(OFF_KEY)
+  } catch {
+    // 저장 공간을 못 쓰면 그냥 넘어감
+  }
+}
+
+function offFlag(): boolean {
+  try {
+    return localStorage.getItem(OFF_KEY) === '1'
+  } catch {
+    return false
+  }
+}
 
 function isIOS(): boolean {
   const ua = navigator.userAgent
@@ -86,6 +105,7 @@ export async function enablePush(): Promise<{ state: Exclude<PushState, 'checkin
     const sub = (await reg.pushManager.getSubscription()) ?? (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyToBytes(PUBLIC_KEY) }))
     const ok = await saveSubscription(sub)
     if (!ok) return { state: 'off', error: '알림 설정을 저장하지 못했어요. 잠시 후 다시 시도해 주세요.' }
+    setOffFlag(false)
     return { state: 'on' }
   } catch (e) {
     console.error('enablePush error:', e)
@@ -95,6 +115,7 @@ export async function enablePush(): Promise<{ state: Exclude<PushState, 'checkin
 
 /** 이 기기 알림 끄기 (로그아웃할 때도 부름) */
 export async function disablePush(): Promise<void> {
+  setOffFlag(true)
   try {
     if (!supported()) return
     const sub = await currentSubscription()
@@ -106,12 +127,23 @@ export async function disablePush(): Promise<void> {
   }
 }
 
-/** 로그인한 채로 앱을 열면, 이미 켠 기기의 알림 정보를 내 계정에 다시 묶어 둔다(다른 계정이 쓰던 기기 대비) */
+/**
+ * 로그인한 채로 앱을 열면, 이미 켠 기기의 알림 정보를 내 계정에 다시 묶어 둔다(다른 계정이 쓰던 기기 대비).
+ * 알림 허용은 그대로인데 구독이 사라진 경우(홈 화면 앱을 지웠다 다시 추가, 브라우저가 구독을 만료시킴 등)
+ * 사용자가 직접 끄지 않았다면 조용히 다시 구독한다 — 허용 창은 뜨지 않는다.
+ */
 export async function refreshPushOwner(): Promise<void> {
   try {
-    if (!supported() || Notification.permission !== 'granted') return
-    const sub = await currentSubscription()
-    if (sub) await saveSubscription(sub)
+    if (!supported() || !PUBLIC_KEY || Notification.permission !== 'granted') return
+    if (isIOS() && !isStandalone()) return
+    let sub = await currentSubscription()
+    if (!sub) {
+      if (offFlag()) return
+      const reg = (await navigator.serviceWorker.getRegistration(SW_URL)) ?? (await navigator.serviceWorker.register(SW_URL, { scope: '/', updateViaCache: 'none' }))
+      await navigator.serviceWorker.ready
+      sub = (await reg.pushManager.getSubscription()) ?? (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyToBytes(PUBLIC_KEY) }))
+    }
+    await saveSubscription(sub)
   } catch {
     // 조용히 넘어감
   }
