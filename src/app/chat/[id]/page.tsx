@@ -222,6 +222,17 @@ function Room({ id, me }: { id: string; me: string }) {
     if (el && stickRef.current) el.scrollTop = el.scrollHeight
   }, [msgs.length, loaded, info])
 
+  // 위쪽 '다음 방문' 막대 등이 늦게 그려져 목록 높이가 줄어도 맨 아래에 붙어 있게
+  useEffect(() => {
+    const el = listRef.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(() => {
+      if (stickRef.current) el.scrollTop = el.scrollHeight
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [loaded])
+
   // 이 대화에 맞는 모드로 (알림을 눌러 들어온 경우 등) — 전문가 대화면 전문가 모드, 내 상담이면 회원 모드
   const { canExpert } = useAppMode()
   const role = info?.role

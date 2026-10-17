@@ -28,8 +28,10 @@ self.addEventListener('push', (event) => {
 
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
-      // 그 대화방을 지금 보고 있으면 알림을 띄우지 않음
-      const watching = list.some((c) => {
+      // 새 메시지 알림(tag room-…)만: 그 대화방을 지금 보고 있으면 띄우지 않음
+      // (방문 일정 알림 등은 같은 대화방 주소로 가도 화면에 바로 안 보이므로 항상 띄움)
+      const isMessage = typeof data.tag === 'string' && data.tag.startsWith('room-')
+      const watching = isMessage && list.some((c) => {
         try {
           return c.focused && c.visibilityState === 'visible' && new URL(c.url).pathname === url
         } catch {
