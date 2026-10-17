@@ -1,40 +1,51 @@
 'use client'
 
-// 크루 화면 조각: 등급·역할 표시, 입력 칸
-import { ROLE_LABEL, tierInfo, type CrewRole } from '@/lib/crew'
+// 크루 화면 조각: 미션 배지·역할 표시, 입력 칸
+import { ROLE_LABEL, badgeInfo, type CrewRole } from '@/lib/crew'
 import { GREEN_DARK, GREEN_LIGHT } from '@/components/ConsultParts'
 
-export function TierChip({ tier, suffix = ' 크루' }: { tier: string; suffix?: string }) {
-  const t = tierInfo(tier)
+/** 월간 미션 배지 (단계가 없으면 '배지 도전 중') */
+export function BadgeChip({ level, plain }: { level: number; plain?: boolean }) {
+  const b = badgeInfo(level)
+  if (!b) {
+    if (plain) return null
+    return (
+      <span className="inline-flex items-center min-h-[26px] px-2.5 rounded-md text-[13px] font-bold whitespace-nowrap" style={{ background: '#F2F4F6', color: '#6B7280' }}>
+        배지 도전 중
+      </span>
+    )
+  }
   return (
-    <span className="inline-flex items-center gap-1 min-h-[26px] px-2.5 rounded-md text-[13px] font-bold whitespace-nowrap" style={{ background: t.bg, color: t.color }}>
-      <TierIcon tier={t.key} />
-      {t.key}
-      {suffix}
+    <span className="inline-flex items-center gap-1 min-h-[26px] px-2.5 rounded-md text-[13px] font-bold whitespace-nowrap" style={{ background: b.bg, color: b.color }}>
+      <BadgeIcon level={level} />
+      {b.label} 배지
     </span>
   )
 }
 
-export function TierIcon({ tier, size = 14 }: { tier: string; size?: number }) {
-  const t = tierInfo(tier)
-  if (t.key === '으뜸') {
-    return (
-      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-        <path d="M4 8l4 4 4-7 4 7 4-4-2 11H6L4 8Z" fill={t.color} />
-      </svg>
-    )
-  }
-  if (t.key === '든든') {
-    return (
-      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-        <path d="M12 3 5 6v5c0 4.4 3 8.3 7 10 4-1.7 7-5.6 7-10V6l-7-3Z" fill={t.color} />
-      </svg>
-    )
-  }
+/** 방패 모양 배지 아이콘 (단계 숫자) */
+export function BadgeIcon({ level, size = 14 }: { level: number; size?: number }) {
+  const b = badgeInfo(level)
+  if (!b) return null
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path d="M12 21v-8M12 13c0-4 3-6 7-6 0 4-3 6-7 6ZM12 15c0-3-2.5-5-6-5 0 3 2.5 5 6 5Z" stroke={t.color} strokeWidth="2" strokeLinejoin="round" />
+    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M12 2 4 5.5v6c0 5 3.4 9.3 8 10.5 4.6-1.2 8-5.5 8-10.5v-6L12 2Z" fill={b.color} />
+      <text x="12" y="16" textAnchor="middle" fontSize="11" fontWeight="800" fill="#fff">
+        {level}
+      </text>
     </svg>
+  )
+}
+
+/** 받은 좋아요 수 */
+export function HeartCount({ n, size = 14 }: { n: number; size?: number }) {
+  return (
+    <span className="inline-flex items-center gap-0.5 whitespace-nowrap" aria-label={`좋아요 ${n}개`}>
+      <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M12 21s-7.5-4.6-9.6-9.2C.9 8.4 3 4.5 6.8 4.5c2.1 0 3.6 1.1 5.2 3 1.6-1.9 3.1-3 5.2-3 3.8 0 5.9 3.9 4.4 7.3C19.5 16.4 12 21 12 21Z" fill="#F04452" />
+      </svg>
+      <span className="font-bold text-gray-700">{n}</span>
+    </span>
   )
 }
 

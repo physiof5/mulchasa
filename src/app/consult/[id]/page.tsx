@@ -236,7 +236,7 @@ function OwnerView({ view, justSent, onChanged }: { view: Extract<View, { role: 
 
       <section className="mx-5 mt-6 rounded-2xl bg-white border border-gray-100 px-5 py-3">
         <h2 className="text-[17px] font-bold text-gray-900 py-2">보낸 내용</h2>
-        <AnswerList answers={c.answers} note={c.note} area={c.area_label} />
+        <AnswerList answers={c.answers} note={c.note} area={c.area_label} minYears={c.min_years} />
       </section>
 
       <section className="px-5 pt-6 space-y-2.5">
@@ -342,7 +342,7 @@ function ExpertView({ view }: { view: Extract<View, { role: 'expert' }> }) {
       </section>
 
       <section className="mx-5 mt-4 rounded-2xl bg-white border border-gray-100 px-5 py-3">
-        <AnswerList answers={c.answers} note={c.note} />
+        <AnswerList answers={c.answers} note={c.note} minYears={c.min_years} />
       </section>
 
       <section className="px-5 pt-5">

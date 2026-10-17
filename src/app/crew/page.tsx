@@ -9,12 +9,13 @@ import { supabase } from '@/lib/supabase'
 import { useAuthUser } from '@/lib/auth'
 import { useAppMode } from '@/lib/mode'
 import { refreshNavBadges } from '@/lib/consult'
-import { crewError, CREW_MAX, type CrewSearchItem, type MyCrew, type NoCrew } from '@/lib/crew'
+import { crewError, CREW_MAX, PROFILE_ITEMS, type CrewSearchItem, type MyCrew, type NoCrew } from '@/lib/crew'
+import Link from 'next/link'
 import { findBannedPhrase, bannedMessage } from '@/lib/practitioner'
 import BottomNav from '@/components/BottomNav'
 import Sheet from '@/components/Sheet'
 import { LoginNeeded, Spinner, GREEN, GREEN_DARK, GREEN_LIGHT } from '@/components/ConsultParts'
-import { PrimaryButton, TextField, TierChip } from '@/components/crew/CrewParts'
+import { BadgeChip, PrimaryButton, TextField } from '@/components/crew/CrewParts'
 import CrewHome from '@/components/crew/CrewHome'
 
 export default function CrewPage() {
@@ -156,7 +157,8 @@ function NoCrewView({ data, reload }: { data: NoCrew; reload: () => Promise<void
             '일정이 안 맞는 요청은 크루원을 추천해 회원과 이어 드려요 (회원이 수락해야 연결)',
             '크루 채팅에서 케이스를 나누고 서로 조언해요',
             `최대 ${CREW_MAX}명 · 대표 1명과 리더 2명이 크루를 이끌어요`,
-            '함께 활동할수록 크루 스코어가 올라 크루 배지를 받아요',
+            '‘도와주세요’ 질문·좋아요·신입 버디로 서로 성장해요',
+            '월간 미션을 이어서 달성하면 크루 배지가 파랑 → 보라로 올라가요',
           ].map((t) => (
             <li key={t} className="flex gap-2 text-[15px] text-gray-700 leading-relaxed">
               <span className="mt-[9px] w-1.5 h-1.5 rounded-full shrink-0" style={{ background: GREEN }} aria-hidden="true" />
@@ -166,6 +168,8 @@ function NoCrewView({ data, reload }: { data: NoCrew; reload: () => Promise<void
         </ul>
         <p className="text-[13px] text-gray-500 mt-3">추천·연결로 돈이 오가지 않아요. 협력 포인트와 크루 배지로 기록돼요.</p>
       </section>
+
+      <ProfileReady data={data} />
 
       <section className="mx-5 mt-4 rounded-2xl bg-white border border-gray-100 p-5">
         <h2 className="text-[17px] font-extrabold text-gray-900">초대 코드로 합류</h2>
@@ -248,11 +252,11 @@ function NoCrewView({ data, reload }: { data: NoCrew; reload: () => Promise<void
                 <button type="button" onClick={() => setJoining(c)} className="w-full text-left rounded-2xl bg-white border border-gray-100 p-4 active:bg-gray-50">
                   <span className="flex items-center gap-2">
                     <span className="flex-1 min-w-0 text-[17px] font-extrabold text-gray-900 truncate">{c.name}</span>
-                    <TierChip tier={c.tier} suffix="" />
+                    <BadgeChip level={c.badge_level} plain />
                   </span>
                   <span className="block text-[14px] text-gray-500 mt-0.5">
-                    {c.region || '지역 미정'} · 크루원 {c.members}/{CREW_MAX}
-                    {c.score != null && ` · ${Math.round(Number(c.score))}점`}
+                    {c.region || '지역 미정'} · 크루원 {c.members}/{CREW_MAX} · {c.join_mode === 'open' ? '바로 참여' : '승인 후 합류'}
+                    {c.min_score > 0 && ` · ${c.min_score}점 이상`}
                   </span>
                   {c.intro && <span className="block text-[15px] text-gray-700 mt-1.5 line-clamp-2 leading-relaxed">{c.intro}</span>}
                   {c.requested && (
@@ -279,6 +283,41 @@ function NoCrewView({ data, reload }: { data: NoCrew; reload: () => Promise<void
         />
       )}
     </div>
+  )
+}
+
+/** 크루 가입 조건: 프로필 4항목 */
+function ProfileReady({ data }: { data: NoCrew }) {
+  const check = data.my_score?.profile_check
+  if (!check) return null
+  const done = PROFILE_ITEMS.filter((i) => check[i.key]).length
+  const all = done === PROFILE_ITEMS.length
+  return (
+    <section className="mx-5 mt-4 rounded-2xl bg-white border-2 p-5" style={{ borderColor: all ? GREEN_LIGHT : '#FDE68A' }}>
+      <div className="flex items-center gap-2">
+        <h2 className="flex-1 text-[17px] font-extrabold text-gray-900">{all ? '크루에 함께할 준비가 됐어요' : '먼저 프로필을 채워 주세요'}</h2>
+        <span className="text-[14px] font-bold" style={{ color: all ? GREEN_DARK : '#B45309' }}>
+          {done}/{PROFILE_ITEMS.length}
+        </span>
+      </div>
+      <p className="text-[14px] text-gray-500 mt-1">크루 가입·만들기는 프로필 4항목을 모두 채운 물리치료사만 할 수 있어요.</p>
+      <ul className="mt-3 grid grid-cols-2 gap-2">
+        {PROFILE_ITEMS.map((i) => (
+          <li key={i.key} className="flex items-center gap-1.5 text-[14px]" style={{ color: check[i.key] ? GREEN_DARK : '#9CA3AF' }}>
+            <span aria-hidden="true">{check[i.key] ? '✓' : '○'}</span>
+            <span className={check[i.key] ? 'font-semibold' : ''}>{i.label}</span>
+          </li>
+        ))}
+      </ul>
+      <p className="text-[13px] text-gray-500 mt-3">
+        내 점수 <b className="text-gray-800">{Math.round(Number(data.my_score?.total ?? 0))}점</b> · 크루마다 최소 점수(40·50점)를 정할 수 있어요.
+      </p>
+      {!all && (
+        <Link href="/mypage?edit=1" className="mt-3 flex min-h-[48px] rounded-xl text-white text-[15px] font-bold items-center justify-center" style={{ background: GREEN }}>
+          프로필 채우러 가기
+        </Link>
+      )}
+    </section>
   )
 }
 
@@ -332,7 +371,7 @@ function JoinSheet({ crew, onClose, onDone }: { crew: CrewSearchItem; onClose: (
     if (busy || crew.requested) return
     setBusy(true)
     setError('')
-    const { error: e } = await supabase.rpc('request_join', { p_crew: crew.id, p_message: message.trim() })
+    const { error: e } = await supabase.rpc('join_crew', { p_crew: crew.id, p_message: message.trim() })
     setBusy(false)
     if (e) return setError(crewError(e))
     onDone()
@@ -342,19 +381,32 @@ function JoinSheet({ crew, onClose, onDone }: { crew: CrewSearchItem; onClose: (
     <Sheet
       title={crew.name}
       onClose={onClose}
-      footer={<PrimaryButton label={crew.requested ? '이미 신청했어요' : busy ? '보내는 중...' : '가입 신청하기'} onClick={submit} disabled={busy || crew.requested} />}
+      footer={
+        <PrimaryButton
+          label={crew.requested ? '이미 신청했어요' : busy ? '보내는 중...' : crew.join_mode === 'open' ? '바로 참여하기' : '가입 신청하기'}
+          onClick={submit}
+          disabled={busy || crew.requested}
+        />
+      }
     >
       <div className="flex items-center gap-2">
-        <TierChip tier={crew.tier} />
+        <BadgeChip level={crew.badge_level} />
         <span className="text-[14px] text-gray-500">
           {crew.region || '지역 미정'} · 크루원 {crew.members}/{CREW_MAX}
         </span>
       </div>
       {crew.intro && <p className="text-[16px] text-gray-700 mt-3 leading-relaxed whitespace-pre-line">{crew.intro}</p>}
-      <div className="mt-4">
-        <TextField label="하고 싶은 말 (선택)" value={message} onChange={setMessage} max={200} multiline rows={3} placeholder="예: 송파에서 방문 운동 지도 3년 차예요. 함께 하고 싶어요!" />
-      </div>
-      <p className="text-[13px] text-gray-500 mt-3 leading-relaxed">대표·리더가 수락하면 크루 채팅에 들어갈 수 있어요. 내 프로필(이름·경력·사진)이 함께 전달돼요.</p>
+      {crew.min_score > 0 && <p className="text-[14px] text-gray-600 mt-3">이 크루는 개인 점수 {crew.min_score}점 이상부터 함께할 수 있어요.</p>}
+      {crew.join_mode === 'open' ? (
+        <p className="text-[13px] text-gray-500 mt-3 leading-relaxed">‘바로 참여’ 크루예요. 조건이 맞으면 누르는 즉시 크루원이 돼요.</p>
+      ) : (
+        <>
+          <div className="mt-4">
+            <TextField label="하고 싶은 말 (선택)" value={message} onChange={setMessage} max={200} multiline rows={3} placeholder="예: 송파에서 방문 운동 지도 3년 차예요. 함께 하고 싶어요!" />
+          </div>
+          <p className="text-[13px] text-gray-500 mt-3 leading-relaxed">대표·리더가 수락하면 크루 채팅에 들어갈 수 있어요. 내 프로필(이름·경력·사진)과 점수가 함께 전달돼요.</p>
+        </>
+      )}
       {error && <p className="text-[14px] text-red-500 mt-2">{error}</p>}
     </Sheet>
   )

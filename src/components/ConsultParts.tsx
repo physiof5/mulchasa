@@ -80,8 +80,12 @@ export function StateChip({ row }: { row: Pick<ConsultRow, 'status' | 'accepted_
 }
 
 /** 요청서 내용 (선택한 답 + 남긴 글) */
-export function AnswerList({ answers, note, area }: { answers: ConsultAnswers; note?: string; area?: string }) {
-  const lines = [...answerLines(answers), ...(area ? [{ label: '동네', value: area }] : [])]
+export function AnswerList({ answers, note, area, minYears }: { answers: ConsultAnswers; note?: string; area?: string; minYears?: number }) {
+  const lines = [
+    ...answerLines(answers),
+    ...(minYears && minYears > 0 ? [{ label: '선생님 경력', value: `${minYears}년 이상 원해요` }] : []),
+    ...(area ? [{ label: '동네', value: area }] : []),
+  ]
   return (
     <div>
       <dl className="divide-y divide-gray-100">

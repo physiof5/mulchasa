@@ -40,6 +40,8 @@ interface RoomInfo {
     from_name: string | null
     to: { therapist_id: string; name: string; photo: string | null; years: number | null }
   } | null
+  /** 크루원 추천으로 연결된 방이면: 추천한 선생님의 인수인계 메모 (이 방의 전문가에게만) */
+  handover?: { from_name: string | null; from_user_id: string; text: string; at: string } | null
 }
 
 interface Candidate {
@@ -49,6 +51,10 @@ interface Candidate {
   years: number | null
   role: CrewRole
   distance_km: number | null
+  /** 내가 버디(선배)인 신입 크루원 */
+  my_buddy?: boolean
+  /** 회원이 고른 경력 조건을 채우는지 */
+  meets?: boolean
 }
 
 interface Msg {
@@ -373,6 +379,18 @@ function Room({ id, me }: { id: string; me: string }) {
           {!isGuardian && ' 운동 지도 범위에서만 안내해 주세요(진단·치료·효과 보장 약속 금지).'} 대화는 마지막 메시지 후 {CHAT_KEEP_DAYS}일 뒤 지워져요.
         </div>
 
+        {!isGuardian && info.handover && (
+          <div className="mb-3 rounded-2xl bg-white border-2 p-4" style={{ borderColor: GREEN_LIGHT }}>
+            <p className="text-[14px] font-bold" style={{ color: GREEN_DARK }}>
+              📋 {info.handover.from_name ?? '크루원'}님의 인수인계 메모
+            </p>
+            <p className="text-[15px] text-gray-800 mt-1.5 leading-relaxed whitespace-pre-wrap break-words">{info.handover.text}</p>
+            <p className="text-[12px] text-gray-400 mt-2 leading-relaxed">나만 볼 수 있어요. 궁금한 점은 크루 ‘질문’ 탭이나 크루 채팅으로 선배에게 물어보세요.</p>
+            <Link href="/crew" className="mt-2 inline-flex min-h-[40px] items-center text-[14px] font-bold" style={{ color: GREEN_DARK }}>
+              크루로 가기 ›
+            </Link>
+          </div>
+        )}
         {isGuardian ? <ExpertCard t={t} /> : info.consult && <RequestCard consult={info.consult} />}
 
         {msgs.map((m, i) => {
@@ -669,6 +687,7 @@ function ReferralSheet({ roomId, onClose, onDone }: { roomId: string; onClose: (
   const [list, setList] = useState<Candidate[] | null>(null)
   const [pick, setPick] = useState<Candidate | null>(null)
   const [note, setNote] = useState('')
+  const [handover, setHandover] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const banned = findBannedPhrase(note)
@@ -684,6 +703,7 @@ function ReferralSheet({ roomId, onClose, onDone }: { roomId: string; onClose: (
   }, [roomId])
 
   const choose = (c: Candidate) => {
+    if (c.meets === false) return
     setPick(c)
     if (!note.trim() || note.startsWith('제 일정이')) setNote(`제 일정이 맞지 않아 같은 크루의 ${c.name} 선생님을 추천드려요. 믿고 맡길 수 있는 동료예요.`)
   }
@@ -692,7 +712,7 @@ function ReferralSheet({ roomId, onClose, onDone }: { roomId: string; onClose: (
     if (!pick || busy || banned) return
     setBusy(true)
     setError('')
-    const { data, error: e } = await supabase.rpc('create_referral', { p_room: roomId, p_to_user: pick.user_id, p_note: note.trim() })
+    const { data, error: e } = await supabase.rpc('create_referral', { p_room: roomId, p_to_user: pick.user_id, p_note: note.trim(), p_handover: handover.trim() })
     setBusy(false)
     if (e || typeof data !== 'string') return setError(crewError(e))
     onDone(data)
@@ -712,24 +732,28 @@ function ReferralSheet({ roomId, onClose, onDone }: { roomId: string; onClose: (
           <div className="mt-4 flex flex-col gap-2">
             {list.map((c) => {
               const on = pick?.user_id === c.user_id
+              const blocked = c.meets === false
               return (
                 <button
                   key={c.user_id}
                   type="button"
                   onClick={() => choose(c)}
                   aria-pressed={on}
-                  className="flex items-center gap-3 min-h-[64px] px-3 rounded-xl border-2 text-left"
+                  disabled={blocked}
+                  className="flex items-center gap-3 min-h-[64px] px-3 rounded-xl border-2 text-left disabled:opacity-50"
                   style={on ? { borderColor: GREEN, background: GREEN_LIGHT } : { borderColor: '#E5E7EB' }}
                 >
                   <Avatar src={c.photo} name={c.name} size={44} />
                   <span className="flex-1 min-w-0">
                     <span className="block text-[16px] font-bold text-gray-900 truncate">
                       {c.name} {c.role !== 'member' && <span className="text-[13px] font-semibold" style={{ color: GREEN_DARK }}>{ROLE_LABEL[c.role]}</span>}
+                      {c.my_buddy && <span className="ml-1 text-[12px] font-bold px-1.5 py-0.5 rounded" style={{ background: '#EDE9FE', color: '#6D28D9' }}>내 버디</span>}
                     </span>
                     <span className="block text-[13px] text-gray-500">
                       경력 {c.years ? `${c.years}년` : '-'}
                       {c.distance_km != null && ` · 회원 동네에서 약 ${c.distance_km}km`}
                     </span>
+                    {blocked && <span className="block text-[12px] text-amber-700">회원이 경력 3년 이상 선생님을 원해요</span>}
                   </span>
                 </button>
               )
@@ -748,6 +772,19 @@ function ReferralSheet({ roomId, onClose, onDone }: { roomId: string; onClose: (
               />
             </label>
             {banned && <p className="text-[13px] text-red-500 mt-1">{bannedMessage(banned)}</p>}
+            <label className="block mt-4">
+              <span className="text-[15px] font-bold text-gray-800">인수인계 메모 (선택 · {pick.name}님에게만)</span>
+              <textarea
+                value={handover}
+                onChange={(e) => setHandover(e.target.value.slice(0, 500))}
+                rows={4}
+                placeholder="예: 왼쪽 편마비, 집 계단 4칸. 오전 시간을 선호하시고 따님이 결정하세요. 첫 방문 때 화장실 동선부터 봐 주세요."
+                className="mt-1.5 w-full p-3 border border-gray-200 rounded-xl text-[15px] leading-relaxed focus:outline-none focus:border-[#0A8A7B] resize-none"
+              />
+              <span className="block text-[12px] text-gray-400 mt-1 leading-relaxed">
+                회원이 연결을 수락한 뒤에만 새 대화방에서 보여요. 방문·운동 지도는 받은 선생님이 직접 하고, 선배는 인수인계와 질문 답으로 도와요.
+              </span>
+            </label>
           </>
         )}
         {error && <p className="text-[14px] text-red-500 mt-2">{error}</p>}

@@ -9,7 +9,8 @@ import PhotoTriplet from '@/components/PhotoTriplet'
 import { pickPhotos } from '@/lib/squareImage'
 import { practitionerLabel, workTypeLabels, summarizeAvailability, PRACTICE_RULES, FAQ_QUESTIONS, cleanFaq } from '@/lib/practitioner'
 import { PUBLIC_FIELDS, REVIEW_DISCLAIMER, stars, type PublicReview } from '@/lib/reviews'
-import { TierIcon } from '@/components/crew/CrewParts'
+import { BadgeIcon } from '@/components/crew/CrewParts'
+import { badgeInfo } from '@/lib/crew'
 
 interface Therapist {
   id: string
@@ -40,7 +41,7 @@ export default function TherapistDetailPage() {
   const [therapist, setTherapist] = useState<Therapist | null>(null)
   const [tags, setTags] = useState<Tag[]>([])
   const [reviews, setReviews] = useState<PublicReview[]>([])
-  const [crew, setCrew] = useState<{ crew: string; tier: string } | null>(null)
+  const [crew, setCrew] = useState<{ crew: string | null; badge_level: number; hearts: number } | null>(null)
   const [availability, setAvailability] = useState<string[]>([])
   const [faq, setFaq] = useState<Record<string, string>>({})
   const [photos, setPhotos] = useState<string[]>([])
@@ -107,7 +108,7 @@ export default function TherapistDetailPage() {
       await fetchReviews(id)
       // 크루 배지 (없거나 준비 전이면 표시 안 함)
       const { data: badges } = await supabase.rpc('crew_badges', { p_ids: [id] })
-      const b = Array.isArray(badges) ? (badges as { crew: string; tier: string }[])[0] : null
+      const b = Array.isArray(badges) ? (badges as { crew: string | null; badge_level: number; hearts: number }[])[0] : null
       setCrew(b ?? null)
       setLoading(false)
     }
@@ -249,10 +250,10 @@ export default function TherapistDetailPage() {
             <span className={'inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold ' + typeInfo.color}>
               {typeInfo.label}
             </span>
-            {crew && (crew.tier === '든든' || crew.tier === '으뜸') && (
-              <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-white/95 text-gray-800 text-[11px] font-bold rounded-full">
-                <TierIcon tier={crew.tier} size={12} />
-                {crew.tier} 크루
+            {crew?.crew && badgeInfo(crew.badge_level) && (
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-white/95 text-[11px] font-bold rounded-full" style={{ color: badgeInfo(crew.badge_level)!.color }}>
+                <BadgeIcon level={crew.badge_level} size={12} />
+                {crew.crew} · {badgeInfo(crew.badge_level)!.label} 배지
               </span>
             )}
           </div>
@@ -281,6 +282,15 @@ export default function TherapistDetailPage() {
             )}
             <span className="text-white/40">·</span>
             <span>경력 {therapist.years_experience}년</span>
+            {!!crew?.hearts && crew.hearts > 0 && (
+              <>
+                <span className="text-white/40">·</span>
+                <span className="flex items-center gap-0.5" aria-label={`동료에게 받은 좋아요 ${crew.hearts}개`}>
+                  <span className="text-[#FF6B7A]">❤</span>
+                  {crew.hearts}
+                </span>
+              </>
+            )}
           </div>
         </div>
       </section>

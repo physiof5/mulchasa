@@ -82,6 +82,8 @@ export interface ConsultRow {
   accepted_count: number
   created_at: string
   expires_at: string
+  /** 회원이 원하는 선생님 경력 (0 = 상관없음, 3 = 3년 이상) */
+  min_years?: number
 }
 
 export interface MyExpert {
@@ -206,6 +208,7 @@ const ERRORS: Record<string, string> = {
   closed: '이미 마감된 요청이에요.',
   full: `이미 ${MAX_ACCEPT}명의 전문가가 수락했어요.`,
   too_far: '활동 지역에서 너무 먼 요청이에요.',
+  min_years: '회원이 경력 3년 이상 선생님을 원하는 요청이에요.',
   too_fast: '메시지를 너무 빨리 보내고 있어요. 잠시 뒤 다시 보내 주세요.',
 }
 

@@ -33,9 +33,11 @@ type Draft = Partial<Pick<ConsultAnswers, 'who' | 'age' | 'mobility' | 'fell' | 
   note: string
   area: GeoResult | null
   agree: boolean
+  /** 선생님 경력 조건: 0 = 상관없음, 3 = 3년 이상만 */
+  minYears?: 0 | 3
 }
 
-const EMPTY: Draft = { conditions: [], wants: [], note: '', area: null, agree: false }
+const EMPTY: Draft = { conditions: [], wants: [], note: '', area: null, agree: false, minYears: 0 }
 
 /** 답이 다 찼는지 (동네 제외) */
 function answersDone(d: Draft): boolean {
@@ -183,6 +185,7 @@ function ConsultFlow({ resume, fromFind }: { resume: boolean; fromFind: boolean 
         lat: draft.area.latitude,
         lng: draft.area.longitude,
         agree: true,
+        min_years: draft.minYears === 3 ? 3 : 0,
       },
     })
     if (rpcError || typeof data !== 'string') {
@@ -286,6 +289,13 @@ function ConsultFlow({ resume, fromFind }: { resume: boolean; fromFind: boolean 
                   onClick={() => set('place', o.value)}
                 />
               ))}
+            </div>
+          </div>
+          <div className="mt-8">
+            <SubTitle sub="모든 전문가는 물리치료사 면허를 운영팀이 확인했어요. 경력은 프로필에 항상 보여요.">선생님 경력은요?</SubTitle>
+            <div className="grid grid-cols-2 gap-2">
+              <Chip label="상관없어요" desc="더 많은 선생님이 받아요" selected={(draft.minYears ?? 0) === 0} onClick={() => set('minYears', 0)} />
+              <Chip label="3년 이상만" desc="경력 3년 이상 선생님만" selected={draft.minYears === 3} onClick={() => set('minYears', 3)} />
             </div>
           </div>
         </>,
