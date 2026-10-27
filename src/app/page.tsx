@@ -28,10 +28,10 @@ const GREEN_LIGHT = '#E8F6F4'
 const SITUATIONS = [
   { label: '혼자 일어나기·\n걷기가 힘들어요', tag: '일상생활 동작 회복' },
   { label: '자꾸 넘어질까\n걱정돼요', tag: '보행·균형(낙상 예방)' },
-  { label: '수술 후 회복\n운동이 필요해요', tag: '수술 후 재활 운동' },
-  { label: '허리·무릎이\n불편해요', tag: '근골격 재활 운동' },
+  { label: '수술 후 회복\n운동이 필요해요', tag: '수술 후 회복 운동' },
+  { label: '허리·무릎이\n불편해요', tag: '관절·근력 운동' },
 ]
-const NEURO_TAG = '신경계 재활 운동'
+const NEURO_TAG = '뇌졸중·파킨슨 생활 운동'
 
 export default function Home() {
   const router = useRouter()
@@ -195,7 +195,7 @@ export default function Home() {
               일상생활이 불편해요
             </span>
             <span className="block text-[13px] mt-0.5" style={{ color: GREEN_DARK }}>
-              신경계 재활 운동 전문가 보기
+              뇌졸중·파킨슨 운동 전문가 보기
             </span>
           </span>
           <span className="text-gray-400 text-xl shrink-0" aria-hidden="true">

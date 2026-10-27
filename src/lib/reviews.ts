@@ -15,7 +15,7 @@ export const AGE_BANDS = ['40대 이하', '50대', '60대', '70대', '80대', '9
 export type AgeBand = (typeof AGE_BANDS)[number]
 
 /** 운동 목표 (하나 고르기, 선택) — '치료' 표현은 쓰지 않음 */
-export const PURPOSE_CHIPS = ['보행 연습', '낙상 예방', '근력 운동', '균형 운동', '일상생활 동작', '수술 후 재활 운동', '관절 움직임 운동', '자세 운동'] as const
+export const PURPOSE_CHIPS = ['보행 연습', '낙상 예방', '근력 운동', '균형 운동', '일상생활 동작', '수술 후 회복 운동', '관절 움직임 운동', '자세 운동'] as const
 
 export type LabelStyle = 'OO' | '**'
 export const SURNAME_RE = /^[가-힣]{1,2}$/
@@ -121,7 +121,7 @@ export function statusInfo(status: ReviewStatus, hiddenBy?: CaseReview['hidden_b
 /** 글 검사: 의료행위·효과 보장 표현, 전화번호 */
 export function textProblem(text: string): string | null {
   const banned = findBannedPhrase(text)
-  if (banned) return `‘${banned}’ 같은 표현은 쓸 수 없어요. ‘운동 지도’, ‘재활 운동’처럼 바꿔 주세요.`
+  if (banned) return `‘${banned}’ 같은 표현은 쓸 수 없어요. ‘운동 지도’, ‘회복 운동’처럼 바꿔 주세요.`
   if (/01[016789][\s.-]?\d{3,4}[\s.-]?\d{4}/.test(text)) return '전화번호는 적을 수 없어요.'
   return null
 }

@@ -344,7 +344,7 @@ function CreateSheet({ onClose, onDone }: { onClose: () => void; onDone: () => P
   return (
     <Sheet title="새 크루 만들기" onClose={onClose} footer={<PrimaryButton label={busy ? '만드는 중...' : '크루 만들기'} onClick={submit} disabled={!ok || busy} />}>
       <div className="space-y-4 pt-1">
-        <TextField label="크루 이름" value={name} onChange={setName} max={20} placeholder="예: 송파 방문 재활 크루" error={bannedName ? bannedMessage(bannedName) : null} hint="2~20자, 다른 크루와 겹치지 않게" />
+        <TextField label="크루 이름" value={name} onChange={setName} max={20} placeholder="예: 송파 방문 운동 크루" error={bannedName ? bannedMessage(bannedName) : null} hint="2~20자, 다른 크루와 겹치지 않게" />
         <TextField label="주 활동 지역 (선택)" value={region} onChange={setRegion} max={30} placeholder="예: 서울 송파구·강동구" />
         <TextField
           label="크루 소개 (선택)"

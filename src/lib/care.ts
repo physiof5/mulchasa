@@ -98,13 +98,13 @@ const GERIATRIC_DISEASES: Condition[] = ['stroke', 'parkinson', 'dementia']
 export function recommendPurposes(s: Situation): string[] {
   const has = (c: Condition) => s.conditions.includes(c)
   const list: string[] = []
-  if (NEURO.some(has)) list.push('신경계 재활 운동')
-  if (has('surgery')) list.push('수술 후 재활 운동')
+  if (NEURO.some(has)) list.push('뇌졸중·파킨슨 생활 운동')
+  if (has('surgery')) list.push('수술 후 회복 운동')
   if (s.mobility === 'assist' || s.mobility === 'bed' || has('dementia') || has('frail')) {
     list.push('일상생활 동작 회복')
   }
   if (s.fell === 'yes' || s.mobility === 'aid' || s.mobility === 'assist') list.push('보행·균형(낙상 예방)')
-  if (has('joint')) list.push('근골격 재활 운동')
+  if (has('joint')) list.push('관절·근력 운동')
   if (list.length === 0) list.push('보행·균형(낙상 예방)')
   return Array.from(new Set(list))
 }

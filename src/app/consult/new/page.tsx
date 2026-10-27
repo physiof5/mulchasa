@@ -253,6 +253,14 @@ function ConsultFlow({ resume, fromFind }: { resume: boolean; fromFind: boolean 
               <OptionButton key={o.value} multi label={o.label} selected={draft.conditions.includes(o.value)} onClick={() => toggleCondition(o.value)} />
             ))}
           </div>
+          {draft.conditions.some((c) => c !== EXCLUSIVE_CONDITION) && (
+            <div className="mt-4 rounded-2xl px-4 py-3.5 bg-amber-50 border border-amber-200" role="note">
+              <p className="text-[16px] font-bold text-amber-900">담당 의사에게 먼저 물어봐 주세요</p>
+              <p className="text-[15px] text-amber-900/90 mt-1 leading-relaxed">
+                지금 병원 진료를 받고 계시다면, 운동해도 괜찮은지와 피해야 할 동작을 담당 의사에게 확인해 주세요. 전문가는 운동 지도만 하고, 진료·물리치료를 대신하지 않아요.
+              </p>
+            </div>
+          )}
           <div className="mt-8">
             <SubTitle sub="한 번이라도 넘어졌다면 다시 넘어질 위험이 높아요">최근 1년 안에 넘어진 적이 있나요?</SubTitle>
             <div className="grid grid-cols-3 gap-2">
