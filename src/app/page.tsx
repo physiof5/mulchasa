@@ -31,7 +31,7 @@ const SITUATIONS = [
   { label: '수술 후 회복\n운동이 필요해요', tag: '수술 후 회복 운동' },
   { label: '허리·무릎이\n불편해요', tag: '관절·근력 운동' },
 ]
-const NEURO_TAG = '뇌졸중·파킨슨 생활 운동'
+const NEURO_TAG = '뇌졸중·파킨슨 운동'
 
 export default function Home() {
   const router = useRouter()
